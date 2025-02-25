@@ -1,8 +1,10 @@
 import compute_src from "./shaders/compute.wgsl"
 import triangles_src from "./shaders/triangles.wgsl"
 import points_src from "./shaders/points.wgsl"
+import rays_src from "./shaders/rays.wgsl"
+
 import { Scene } from "./scene";
-import { mat4, vec3 } from "gl-matrix";
+import { mat4, vec2, vec3 } from "gl-matrix";
 
 
 export class Renderer {
@@ -26,12 +28,16 @@ export class Renderer {
     pipelineCompute: GPUComputePipeline;
     pipelineRenderPoints: GPURenderPipeline;
     pipelineRenderTriangles: GPURenderPipeline;
+    pipelineRenderRays: GPURenderPipeline;
+
+    // Bind groups
     bind_group_compute: GPUBindGroup;
     bind_group_render: GPUBindGroup;
     bind_group_layout_compute: GPUBindGroupLayout;
     bind_group_layout_render: GPUBindGroupLayout;
 
-    // Matrices
+    // Parameters
+    raySamples: Uint32Array = new Uint32Array([64, 64]);
 
     // Buffers
     compUniformBuffer: GPUBuffer;
@@ -39,6 +45,7 @@ export class Renderer {
     pointBuffer: GPUBuffer;
     indicesBuffer: GPUBuffer;
     visibilityBuffer: GPUBuffer;
+    rayBuffer: GPUBuffer;
 
     // Scene to render
     scene: Scene
@@ -97,7 +104,7 @@ export class Renderer {
 
         this.compUniformBuffer = this.device.createBuffer({
             label: 'uniform-comp',
-            size: 16,
+            size: 32,
             usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
         });
 
@@ -105,6 +112,12 @@ export class Renderer {
             label: 'uniform-vs',
             size: 64,
             usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+        });
+        
+        this.rayBuffer = this.device.createBuffer({
+            label: 'buffer-ray',    
+            size: this.raySamples[0] * this.raySamples[1] * 2 * 3 * 4,
+            usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST | GPUBufferUsage.VERTEX,
         });
 
         this.bind_group_layout_compute = this.device.createBindGroupLayout({
@@ -129,7 +142,12 @@ export class Renderer {
                     binding: 3,
                     visibility: GPUShaderStage.COMPUTE,
                     buffer: { type: "uniform" }
-                }
+                },
+                {
+                    binding: 5,
+                    visibility: GPUShaderStage.COMPUTE,
+                    buffer: { type: "storage" }
+                },
             ]
         });
 
@@ -145,7 +163,12 @@ export class Renderer {
                     binding: 4,
                     visibility: GPUShaderStage.VERTEX,
                     buffer: { type: "uniform" }
-                }
+                },
+                {
+                    binding: 5,
+                    visibility: GPUShaderStage.VERTEX,
+                    buffer: { type: "read-only-storage" }
+                },
             ]
         });
 
@@ -156,7 +179,8 @@ export class Renderer {
                 { binding: 0, resource: { buffer: this.pointBuffer } },
                 { binding: 1, resource: { buffer: this.indicesBuffer } },
                 { binding: 2, resource: { buffer: this.visibilityBuffer } },
-                { binding: 3, resource: { buffer: this.compUniformBuffer } }
+                { binding: 3, resource: { buffer: this.compUniformBuffer } },
+                { binding: 5, resource: { buffer: this.rayBuffer } }
             ]
         });
 
@@ -165,7 +189,8 @@ export class Renderer {
             layout: this.bind_group_layout_render,
             entries: [
                 { binding: 2, resource: { buffer: this.visibilityBuffer } },
-                { binding: 4, resource: { buffer: this.vsUniformBuffer } }
+                { binding: 4, resource: { buffer: this.vsUniformBuffer } },
+                { binding: 5, resource: { buffer: this.rayBuffer } }
             ]
         });
 
@@ -265,7 +290,27 @@ export class Renderer {
                 topology: 'triangle-list',
                 cullMode: 'back'
             }
-        })
+        });
+
+        const rayShaderModule = this.device.createShaderModule({ code: rays_src });
+        this.pipelineRenderRays = this.device.createRenderPipeline({
+            label: 'render-pipeline-rays',
+            layout: pipeline_layout_render,
+            vertex: {
+                module: rayShaderModule,
+                entryPoint: 'main_vs',
+            },
+            fragment: {
+                module: rayShaderModule,
+                entryPoint: 'main_fs',
+                targets: [
+                    { format: 'bgra8unorm' }
+                ]
+            },
+            primitive: {
+                topology: 'line-list'
+            }
+        });
 
         this.renderPassDescriptor = {
             colorAttachments: [
@@ -306,12 +351,15 @@ export class Renderer {
         this.device.queue.writeBuffer(this.compUniformBuffer, 0, new Float32Array([
             10.0, 0.0, 0.0, 1.0
         ]));
+        this.device.queue.writeBuffer(this.compUniformBuffer, 16, new Uint32Array([
+            this.raySamples[0], this.raySamples[1]
+        ]));
 
         const computeEncoder: GPUCommandEncoder = this.device.createCommandEncoder();
         const computePass: GPUComputePassEncoder = computeEncoder.beginComputePass();
         computePass.setPipeline(this.pipelineCompute);
         computePass.setBindGroup(0, this.bind_group_compute);
-        computePass.dispatchWorkgroups(Math.max(1, Math.ceil(this.scene.triangleCount / 64)));
+        computePass.dispatchWorkgroups(this.raySamples[0], this.raySamples[1], 1);
         computePass.end();
         this.device.queue.submit([computeEncoder.finish()]);
     }
@@ -343,6 +391,10 @@ export class Renderer {
             renderPass.setIndexBuffer(this.indicesBuffer, "uint32");
             renderPass.drawIndexed(this.scene.indices.length, 1, 0, 0, 0);
         }
+
+        renderPass.setPipeline(this.pipelineRenderRays);
+        renderPass.setBindGroup(0, this.bind_group_render);
+        renderPass.draw(2 * this.raySamples[0] * this.raySamples[1], 1);
 
         renderPass.end();
         this.device.queue.submit([renderEncoder.finish()]);
