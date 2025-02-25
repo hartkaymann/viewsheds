@@ -1,0 +1,14 @@
+body {
+  margin: 0;
+  background: #e4e4e4;
+  color: #0a0a0a;
+}
+
+canvas#gfx-main {
+  float: left;
+}
+
+div#debug{
+  margin-left: 800px;
+  padding-left: 16px;
+}
