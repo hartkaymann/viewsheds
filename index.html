@@ -15,8 +15,47 @@
     <div id="debug">
       <h2>Debug:</h2>
       <span>fps: </span><span id="fps"></span><br>
-      <input type="checkbox" id="renderPointsCheckbox" checked>
-      <label for="renderPointsCheckbox">Render Points</label><br>
+      <div>
+        <label for="renderPoints">Render Points:</label>
+        <input type="checkbox" id="renderPoints" checked>
+      </div>
+      <div>
+        <label for="samplesX">Samples X:</label>
+        <input type="number" id="samplesX" value="16" step="1">
+      </div>
+      <div>
+        <label for="samplesY">Samples Y:</label>
+        <input type="number" id="samplesY" value="32" step="1">
+      </div>
+      <div>
+        <label for="originX">Origin X:</label>
+        <input type="number" id="originX" value="0.0" step="0.1">
+      </div>
+      <div>
+        <label for="originY">Origin Y:</label>
+        <input type="number" id="originY" value="0.0" step="0.1">
+      </div>
+      <div>
+        <label for="originZ">Origin Z:</label>
+        <input type="number" id="originZ" value="0.0" step="0.1">
+      </div>
+      <div>
+        <label for="startTheta">Start Theta:</label>
+        <input type="number" id="startTheta" value="-0.261799" step="0.0872665">
+      </div>
+      <div>
+        <label for="endTheta">End Theta:</label>
+        <input type="number" id="endTheta" value="0.261799" step="0.0872665">
+      </div>
+      <div>
+        <label for="startPhi">Start Phi:</label>
+        <input type="number" id="startPhi" value="0.523599" step="0.0872665">
+      </div>
+      <div>
+        <label for="endPhi">End Phi:</label>
+        <input type="number" id="endPhi" value="2.61799" step="0.0872665">
+      </div>
+      <button id="updateValues">Update Values</button>
     </div>
   </div>
   <script type="module" src="src/main.ts"></script>

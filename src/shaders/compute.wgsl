@@ -1,6 +1,10 @@
 struct compUniforms {
-  cameraPosition: vec4f,
-  raySamples: vec2<u32>
+    rayOrigin: vec3f,       
+    startTheta: f32,        // Start horizontal angle (radians)
+    endTheta: f32,          // End horizontal angle (radians)
+    startPhi: f32,          // Start vertical angle (radians)
+    endPhi: f32,            // End vertical angle (radians)
+    raySamples: vec2<u32>   // Grid size (X, Y)
 };
 
 struct Ray {
@@ -36,22 +40,27 @@ fn rayStepIntersectsTriangle(rayStepPos: vec3<f32>, rayDir: vec3<f32>, v0: vec3<
     return t > 0.00001 && t < 1.0;
 }
 
-@compute @workgroup_size(64)
+@compute @workgroup_size(1, 1, 1)
 fn main(@builtin(global_invocation_id) id: vec3<u32>) {
-    let rayOrigin = vec3f(0.0, 0.0, 0.0); // Example fixed point
+    let rayOrigin = uniforms.rayOrigin;
+
     let gridSize = vec2f(f32(uniforms.raySamples.x), f32(uniforms.raySamples.y));
-    let id2D = vec2f(f32(id.x), f32(id.y)) / gridSize * 2.0 - vec2f(1.0, 1.0);
+    let id2D = vec2<f32>(f32(id.x) / gridSize.x, f32(id.y) / gridSize.y); 
     
-    let theta = id2D.x * 3.1415926;
-    let phi = (id2D.y + 1.0) * 0.5 * 3.1415926;
+    let theta = uniforms.startTheta + id2D.x * (uniforms.endTheta - uniforms.startTheta);
+    let phi = acos(mix(cos(uniforms.startPhi), cos(uniforms.endPhi), id2D.y));
+
     let rayDir = normalize(vec3f(
-        cos(theta) * sin(phi),  
-        cos(phi),
-        sin(theta) * sin(phi)   
+        cos(theta) * sin(phi), // X
+        cos(phi),              // Y
+        sin(theta) * sin(phi)  // Z
     ));
+
     // Store the ray in the buffer
-    let linearIndex = id.y * u32(gridSize.x) + id.x;
-     rayBuffer[linearIndex] = Ray(rayOrigin, rayDir);
+    let linearIndex = id.x + (id.y * uniforms.raySamples.x);
+    if (linearIndex < arrayLength(&rayBuffer)) {
+        rayBuffer[linearIndex] = Ray(rayOrigin, rayDir);
+    }
      
     let maxSteps = 50;
     let stepSize = 0.1;

@@ -36,8 +36,7 @@ export class Renderer {
     bind_group_layout_compute: GPUBindGroupLayout;
     bind_group_layout_render: GPUBindGroupLayout;
 
-    // Parameters
-    raySamples: Uint32Array = new Uint32Array([64, 64]);
+    raySamples: Uint32Array = new Uint32Array([16, 32]);
 
     // Buffers
     compUniformBuffer: GPUBuffer;
@@ -95,7 +94,7 @@ export class Renderer {
         });
         this.device.queue.writeBuffer(this.indicesBuffer, 0, this.scene.indices);
 
-        const visibilityBufferSize = Math.ceil(this.scene.points.length / 3 / 32) * Uint32Array.BYTES_PER_ELEMENT; 
+        const visibilityBufferSize = Math.ceil(this.scene.points.length / 3 / 32) * Uint32Array.BYTES_PER_ELEMENT;
         this.visibilityBuffer = this.device.createBuffer({
             label: 'buffer-visibility',
             size: visibilityBufferSize,
@@ -104,7 +103,7 @@ export class Renderer {
 
         this.compUniformBuffer = this.device.createBuffer({
             label: 'uniform-comp',
-            size: 32,
+            size: 48,
             usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
         });
 
@@ -113,10 +112,10 @@ export class Renderer {
             size: 64,
             usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
         });
-        
+
         this.rayBuffer = this.device.createBuffer({
-            label: 'buffer-ray',    
-            size: this.raySamples[0] * this.raySamples[1] * 2 * 3 * 4,
+            label: 'buffer-ray',
+            size: this.raySamples[0] * this.raySamples[1] * 2 * 4 * 4,
             usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST | GPUBufferUsage.VERTEX,
         });
 
@@ -324,6 +323,10 @@ export class Renderer {
             ]
         }
 
+        const updateButton = document.getElementById("updateValues");
+        updateButton.addEventListener("click", this.updateValues.bind(this));
+        this.updateValues();
+
         this.runComputePass();
         this.render();
     }
@@ -348,13 +351,6 @@ export class Renderer {
     }
 
     runComputePass() {
-        this.device.queue.writeBuffer(this.compUniformBuffer, 0, new Float32Array([
-            10.0, 0.0, 0.0, 1.0
-        ]));
-        this.device.queue.writeBuffer(this.compUniformBuffer, 16, new Uint32Array([
-            this.raySamples[0], this.raySamples[1]
-        ]));
-
         const computeEncoder: GPUCommandEncoder = this.device.createCommandEncoder();
         const computePass: GPUComputePassEncoder = computeEncoder.beginComputePass();
         computePass.setPipeline(this.pipelineCompute);
@@ -376,7 +372,7 @@ export class Renderer {
 
         const renderEncoder: GPUCommandEncoder = this.device.createCommandEncoder();
         const renderPass: GPURenderPassEncoder = renderEncoder.beginRenderPass(this.renderPassDescriptor);
-        const renderPointsCheckbox = <HTMLInputElement>document.getElementById("renderPointsCheckbox");
+        const renderPointsCheckbox = <HTMLInputElement>document.getElementById("renderPoints");
         const renderPoints = renderPointsCheckbox.checked;
 
         if (renderPoints) {
@@ -400,6 +396,61 @@ export class Renderer {
         this.device.queue.submit([renderEncoder.finish()]);
     }
 
+    updateValues() {
+        let oldSamples = [this.raySamples[0], this.raySamples[1]];
+        this.raySamples[0] = parseFloat((<HTMLInputElement>document.getElementById("samplesX")).value);
+        this.raySamples[1] = parseFloat((<HTMLInputElement>document.getElementById("samplesY")).value);
+        const originX = parseFloat((<HTMLInputElement>document.getElementById("originX")).value);
+        const originY = parseFloat((<HTMLInputElement>document.getElementById("originY")).value);
+        const originZ = parseFloat((<HTMLInputElement>document.getElementById("originZ")).value);
+        const startTheta = parseFloat((<HTMLInputElement>document.getElementById("startTheta")).value);
+        const endTheta = parseFloat((<HTMLInputElement>document.getElementById("endTheta")).value);
+        const startPhi = parseFloat((<HTMLInputElement>document.getElementById("startPhi")).value);
+        const endPhi = parseFloat((<HTMLInputElement>document.getElementById("endPhi")).value);
+
+        this.device.queue.writeBuffer(this.compUniformBuffer, 0, new Float32Array([
+            originX, originY, originZ,
+            startTheta, endTheta,
+            startPhi, endPhi
+        ]));
+        this.device.queue.writeBuffer(this.compUniformBuffer, 32, new Uint32Array([
+            this.raySamples[0], this.raySamples[1]
+        ]));
+
+        if (oldSamples[0] != this.raySamples[0] || oldSamples[1] != this.raySamples[1]) {
+            this.rayBuffer = this.device.createBuffer({
+                label: 'buffer-ray',
+                size: this.raySamples[0] * this.raySamples[1] * 2 * 4 * 4,
+                usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST | GPUBufferUsage.VERTEX,
+            });
+            // Update the bind group with the new ray buffer
+            this.bind_group_compute = this.device.createBindGroup({
+                label: 'comp_bind_group',
+                layout: this.bind_group_layout_compute,
+                entries: [
+                    { binding: 0, resource: { buffer: this.pointBuffer } },
+                    { binding: 1, resource: { buffer: this.indicesBuffer } },
+                    { binding: 2, resource: { buffer: this.visibilityBuffer } },
+                    { binding: 3, resource: { buffer: this.compUniformBuffer } },
+                    { binding: 5, resource: { buffer: this.rayBuffer } }
+                ]
+            });
+
+            this.bind_group_render = this.device.createBindGroup({
+                label: 'render_bind_group',
+                layout: this.bind_group_layout_render,
+                entries: [
+                    { binding: 2, resource: { buffer: this.visibilityBuffer } },
+                    { binding: 4, resource: { buffer: this.vsUniformBuffer } },
+                    { binding: 5, resource: { buffer: this.rayBuffer } }
+                ]
+            });
+
+        }
+        this.runComputePass();
+    }
+
+
     calculateFPS(currTime: number) {
         this.frameCount++;
 
@@ -413,19 +464,5 @@ export class Renderer {
 
         const fpsLabel: HTMLElement = <HTMLElement>document.getElementById("fps");
         fpsLabel.innerText = (this.fps).toFixed(2);
-    }
-
-    generatePackedBooleanArray(length: number): Uint32Array {
-        const packedArray = new Uint32Array(Math.ceil(length / 32));
-        for (let i = 0; i < length; i++) {
-            const wordIndex = Math.floor(i / 32);
-            const bitIndex = i % 32;
-            const randomBool = Math.random() > 0.5;
-
-            if (randomBool) {
-                packedArray[wordIndex] |= (1 << bitIndex);
-            }
-        }
-        return packedArray;
     }
 }

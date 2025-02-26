@@ -4,7 +4,9 @@ struct vsUniforms {
 
 struct Ray {
     origin: vec3f,
-    direction: vec3f
+    _padding1: f32,
+    direction: vec3f,
+    _padding2: f32
 };
 
 @group(0) @binding(4) var<uniform> uniforms: vsUniforms;
@@ -19,13 +21,19 @@ struct VertexOutput {
 fn main_vs(@builtin(vertex_index) vertexIndex: u32) -> VertexOutput {
     var output: VertexOutput;
 
-    let rayIndex = vertexIndex / 2;
-    let isStartPoint = (vertexIndex % 2u) == 0u;
+    let rayIndex = vertexIndex >> 1; // Fast division by 2
+    let isStartPoint = (vertexIndex & 1u) == 0u; // Bitwise check for even/odd
 
-    let ray = rayBuffer[rayIndex];
-    let rayPos = select(ray.origin, ray.origin + ray.direction, isStartPoint);
-    output.position = uniforms.viewProjection * vec4f(rayPos, 1.0);
-    output.color = vec4f(0.0, 1.0, 0.5, 1.0);
+    if (rayIndex < arrayLength(&rayBuffer)) {
+        let ray = rayBuffer[rayIndex];
+        let rayPos = select(ray.origin, ray.origin + ray.direction, isStartPoint);
+        output.position = uniforms.viewProjection * vec4f(rayPos, 1.0);
+        output.color = vec4f(0.0, 1.0, 0.5, 1.0);
+    } else {
+        // Handle out-of-bounds case (optional)
+        output.position = vec4f(0.0, 0.0, 0.0, 1.0);
+        output.color = vec4f(1.0, 0.0, 0.0, 1.0); // Red color for debugging
+    }
 
     return output;
 }
