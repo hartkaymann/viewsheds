@@ -17,11 +17,12 @@ struct VertexOutput {
 };
 
 @vertex
-fn main(@location(0) position: vec3f, @builtin(vertex_index) vIndex: u32) -> VertexOutput {
+fn main(@location(0) position: vec4f, @builtin(vertex_index) vIndex: u32) -> VertexOutput {
     var output: VertexOutput;
-
-    let worldPos = vec4f(position, 1.0);
+    
+    let worldPos = vec4f(position.xyz, 1.0);	
     output.position = uniforms.viewProjection * worldPos;
+
     
     let isVisible = getBoolean(vIndex);
     output.color = select(vec4f(1.0, 1.0, 1.0, 1.0), vec4f(1.0, 0.5, 0.3, 1.0), isVisible);

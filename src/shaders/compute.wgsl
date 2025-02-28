@@ -1,18 +1,22 @@
 struct compUniforms {
-    rayOrigin: vec3f,       
+    rayOrigin: vec3f,   
+    stepSize: f32,          // Step size
     startTheta: f32,        // Start horizontal angle (radians)
     endTheta: f32,          // End horizontal angle (radians)
     startPhi: f32,          // Start vertical angle (radians)
     endPhi: f32,            // End vertical angle (radians)
-    raySamples: vec2<u32>   // Grid size (X, Y)
+    raySamples: vec2<u32>,   // Grid size (X, Y)
+    maxSteps: u32,         // Maximum number of steps
 };
 
 struct Ray {
     origin: vec3f,
+    steps: u32,
     direction: vec3f,
+    stepSize: f32
 };
 
-@group(0) @binding(0) var<storage, read> pointCloud: array<vec3f>;
+@group(0) @binding(0) var<storage, read> pointCloud: array<vec4f>;
 @group(0) @binding(1) var<storage, read> indexBuffer: array<u32>;
 @group(0) @binding(2) var<storage, read_write> visibilityBuffer: array<atomic<u32>>;
 @group(0) @binding(3) var<uniform> uniforms: compUniforms;
@@ -24,7 +28,7 @@ fn rayStepIntersectsTriangle(rayStepPos: vec3<f32>, rayDir: vec3<f32>, v0: vec3<
     let h = cross(rayDir, edge2);
     let a = dot(edge1, h);
 
-    if (abs(a) < 0.00001) { return false; } // Ray parallel to triangle
+    if (abs(a) < 0.00001) { return false; } // Ray parallel to triangleecision
 
     let f = 1.0 / a;
     let s = rayStepPos - v0;
@@ -37,12 +41,14 @@ fn rayStepIntersectsTriangle(rayStepPos: vec3<f32>, rayDir: vec3<f32>, v0: vec3<
 
     let t = f * dot(edge2, q);
     
-    return t > 0.00001 && t < 1.0;
+    return t > 0.00001 && t < 1.0;// Adjusted threshold for precision
 }
 
 @compute @workgroup_size(1, 1, 1)
 fn main(@builtin(global_invocation_id) id: vec3<u32>) {
     let rayOrigin = uniforms.rayOrigin;
+    let maxSteps = uniforms.maxSteps;
+    let stepSize = uniforms.stepSize;
 
     let gridSize = vec2f(f32(uniforms.raySamples.x), f32(uniforms.raySamples.y));
     let id2D = vec2<f32>(f32(id.x) / gridSize.x, f32(id.y) / gridSize.y); 
@@ -56,30 +62,36 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
         sin(theta) * sin(phi)  // Z
     ));
 
-    // Store the ray in the buffer
-    let linearIndex = id.x + (id.y * uniforms.raySamples.x);
-    if (linearIndex < arrayLength(&rayBuffer)) {
-        rayBuffer[linearIndex] = Ray(rayOrigin, rayDir);
-    }
-     
-    let maxSteps = 50;
-    let stepSize = 0.1;
     var rayPos = rayOrigin;
+    var stepsTaken = 0u;
+    var hit = false;
 
-    for (var i = 0; i < maxSteps; i++) {
+    for (var i = 0u; i < maxSteps; i++) {
         rayPos += rayDir * stepSize; // Move the ray forward
+        stepsTaken = i + 1u;
 
         for (var j = 0u; j < arrayLength(&indexBuffer) / 3; j++) {
-            let v0 = pointCloud[indexBuffer[j * 3 + 0]];
-            let v1 = pointCloud[indexBuffer[j * 3 + 1]];
-            let v2 = pointCloud[indexBuffer[j * 3 + 2]];
-    
+            let v0 = pointCloud[indexBuffer[j * 3 + 0]].xyz;
+            let v1 = pointCloud[indexBuffer[j * 3 + 1]].xyz;
+            let v2 = pointCloud[indexBuffer[j * 3 + 2]].xyz;
+
             if (rayStepIntersectsTriangle(rayPos, rayDir, v0, v1, v2)) {
                 let wordIndex = j / 32;
-        	    let bitIndex = j % 32;
+                let bitIndex = j % 32;
                 atomicOr(&visibilityBuffer[wordIndex], (1u << bitIndex));
+                hit = true;
                 break;
             }
         }
+
+        if (hit) {
+            break;
+        }
+    }
+
+    // Store ray in the buffer
+    let linearIndex = id.x + (id.y * uniforms.raySamples.x);
+    if (linearIndex < arrayLength(&rayBuffer)) {
+        rayBuffer[linearIndex] = Ray(rayOrigin, stepsTaken, rayDir, stepSize);
     }
 }

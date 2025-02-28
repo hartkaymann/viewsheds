@@ -221,12 +221,12 @@ export class Renderer {
                 entryPoint: 'main',
                 buffers: [
                     {
-                        arrayStride: 3 * 4, // 3 floats per vertex, 4 bytes per float
+                        arrayStride: 4 * 4, // 4 floats per vertex, 4 bytes per float
                         attributes: [
                             {
                                 shaderLocation: 0,
                                 offset: 0,
-                                format: 'float32x3'
+                                format: 'float32x4'
                             }
                         ]
                     }
@@ -267,12 +267,12 @@ export class Renderer {
                 entryPoint: 'main',
                 buffers: [
                     {
-                        arrayStride: 3 * 4, // 3 floats per vertex, 4 bytes per float
+                        arrayStride: 4 * 4, // 4 floats per vertex, 4 bytes per float
                         attributes: [
                             {
                                 shaderLocation: 0,
                                 offset: 0,
-                                format: 'float32x3'
+                                format: 'float32x4'
                             }
                         ]
                     }
@@ -287,7 +287,8 @@ export class Renderer {
             },
             primitive: {
                 topology: 'triangle-list',
-                cullMode: 'back'
+                cullMode: 'back',
+                frontFace: 'ccw'
             }
         });
 
@@ -379,7 +380,7 @@ export class Renderer {
             renderPass.setPipeline(this.pipelineRenderPoints);
             renderPass.setBindGroup(0, this.bind_group_render);
             renderPass.setVertexBuffer(0, this.pointBuffer); // Set the vertex buffer
-            renderPass.draw(this.scene.points.length / 3, 1);
+            renderPass.draw(this.scene.points.length / 4, 1);
         } else {
             renderPass.setPipeline(this.pipelineRenderTriangles);
             renderPass.setBindGroup(0, this.bind_group_render);
@@ -403,18 +404,19 @@ export class Renderer {
         const originX = parseFloat((<HTMLInputElement>document.getElementById("originX")).value);
         const originY = parseFloat((<HTMLInputElement>document.getElementById("originY")).value);
         const originZ = parseFloat((<HTMLInputElement>document.getElementById("originZ")).value);
+        const maxSteps = parseFloat((<HTMLInputElement>document.getElementById("maxSteps")).value);
+        const stepSize = parseFloat((<HTMLInputElement>document.getElementById("stepSize")).value);
         const startTheta = parseFloat((<HTMLInputElement>document.getElementById("startTheta")).value);
         const endTheta = parseFloat((<HTMLInputElement>document.getElementById("endTheta")).value);
         const startPhi = parseFloat((<HTMLInputElement>document.getElementById("startPhi")).value);
         const endPhi = parseFloat((<HTMLInputElement>document.getElementById("endPhi")).value);
 
         this.device.queue.writeBuffer(this.compUniformBuffer, 0, new Float32Array([
-            originX, originY, originZ,
-            startTheta, endTheta,
-            startPhi, endPhi
+            originX, originY, originZ, stepSize, // 16
+            startTheta, endTheta, startPhi, endPhi // 32
         ]));
         this.device.queue.writeBuffer(this.compUniformBuffer, 32, new Uint32Array([
-            this.raySamples[0], this.raySamples[1]
+            this.raySamples[0], this.raySamples[1], maxSteps // 44
         ]));
 
         if (oldSamples[0] != this.raySamples[0] || oldSamples[1] != this.raySamples[1]) {

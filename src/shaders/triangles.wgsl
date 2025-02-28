@@ -9,17 +9,10 @@ struct VertexOutput {
 };
 
 @vertex
-fn main(@location(0) position: vec3f, @builtin(vertex_index) vIndex: u32) -> VertexOutput {
+fn main(@location(0) position: vec4f, @builtin(vertex_index) vIndex: u32) -> VertexOutput {
     var output: VertexOutput;
 
-    let worldPos = vec4f(position, 1.0);
-    output.position = uniforms.viewProjection * worldPos;
-
-    let barycentricCoords = array<vec3f, 3>(
-        vec3f(1.0, 0.0, 0.0),
-        vec3f(0.0, 1.0, 0.0),
-        vec3f(0.0, 0.0, 1.0)
-    );
+    output.position = uniforms.viewProjection * position;
 
     return output;
 }

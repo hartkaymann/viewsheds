@@ -1,52 +1,7 @@
 import { vec2, vec3 } from "gl-matrix";
 import { Camera } from "./camera";
-
-namespace icosahedron {
-    const X: number = 0.525731112119133606;
-    const Z: number = 0.850650808352039932;
-    const N: number = 0.0;
-
-    export const vertices: Float32Array = new Float32Array([
-        -X, N, Z,  
-        X, N, Z, 
-        -X, N, -Z,  
-        X, N, -Z,
-
-        N, Z, X,  
-        N, Z, -X,  
-        N, -Z, X,  
-        N, -Z, -X,
-
-        Z, X, N, 
-        -Z, X, N,  
-        Z, -X, N, 
-        -Z, -X, N
-    ]);
-
-    export const triangles: Uint32Array = new Uint32Array([
-        0, 4, 1,  
-        0, 9, 4,  
-        9, 5, 4,  
-        4, 5, 8,  
-        4, 8, 1,
-        8, 10, 1,  
-        8, 3, 10,  
-        5, 3, 8,  
-        5, 2, 3,  
-        2, 7, 3,
-        7, 10, 3,  
-        7, 6, 10,  
-        7, 11, 6,  
-        11, 0, 6,  
-        0, 1, 6,
-        6, 1, 10,  
-        9, 0, 11,  
-        9, 11, 2,  
-        9, 2, 5,  
-        7, 2, 11
-    ]);
-}
-
+import Delaunator from "delaunator";
+import { LASFile } from "./laslaz.js";
 
 export class Scene {
 
@@ -58,15 +13,71 @@ export class Scene {
 
     constructor(camera: Camera) {
         this.camera = camera;
-        this.points = icosahedron.vertices;
-        this.indices = icosahedron.triangles;
-        this.triangleCount = icosahedron.triangles.length / 3;
 
-        // this.init();
+        this.init();
     }
 
-    init() {
-        this.loadPLYFromURL("/model/galleon.ply");
+    async init() {
+        // this.loadPLYFromURL("/model/galleon.ply");
+        await this.loadLASorLAZ("./model/80049_1525964_M-34-63-B-b-1-4-4-3.laz");
+    }
+
+    async loadLASorLAZ(url: string) {
+        try {
+            console.log(`Fetching binary data from: ${url}`);
+
+            // Fetch the LAZ/LAS file as an ArrayBuffer using XMLHttpRequest method
+            const buffer = await this.getBinary(url, (loaded, total) => {
+                console.log(`Progress: ${(loaded / total) * 100}%`);
+            });
+
+            console.log("Successfully fetched file, initializing LAS/LAZ parser...");
+
+            // Use LASFile from laslaz.js
+            const lasFile = new LASFile(buffer);
+            await lasFile.open();
+
+            // Read the header
+            const header = await lasFile.getHeader();
+            console.log("Header Info:", header);
+
+            // Read and process points
+            const totalPoints = header.pointsCount;
+            console.log(`Total Points: ${totalPoints}`);
+
+            await lasFile.close();
+        } catch (error) {
+            console.error("Error loading LAS/LAZ file:", error);
+        }
+    }
+
+    async getBinary(url: string, progressCallback: (loaded: number, total: number) => void): Promise<ArrayBuffer> {
+        return new Promise((resolve, reject) => {
+            const oReq = new XMLHttpRequest();
+            oReq.open("GET", url, true);
+            oReq.responseType = "arraybuffer"; // Ensure binary data is correctly retrieved
+
+            oReq.onprogress = function (e) {
+                if (e.lengthComputable) {
+                    progressCallback(e.loaded, e.total); // Update progress
+                }
+            };
+
+            oReq.onload = function () {
+                if (oReq.status === 200) {
+                    console.log("Response Headers:", oReq.getAllResponseHeaders());
+                    resolve(oReq.response); // Correctly resolve as ArrayBuffer
+                } else {
+                    reject(new Error(`Failed to fetch file: ${oReq.statusText}`));
+                }
+            };
+
+            oReq.onerror = function (err) {
+                reject(new Error("Network error while fetching binary data"));
+            };
+
+            oReq.send();
+        });
     }
 
     async loadPLYFromURL(url: string): Promise<void> {

@@ -10,13 +10,15 @@
   },
   "devDependencies": {
     "@types/jquery": "^3.5.29",
-    "@types/node": "^22.13.4",
+    "@types/node": "^22.13.5",
     "@webgpu/types": "^0.1.40",
     "typescript": "^5.2.2",
     "vite": "^5.0.8",
     "vite-raw-plugin": "^1.0.2"
   },
   "dependencies": {
+    "bluebird": "^3.7.2",
+    "delaunator": "^5.0.1",
     "gl-matrix": "^3.4.3",
     "jquery": "^3.7.1"
   }

@@ -4,9 +4,9 @@ struct vsUniforms {
 
 struct Ray {
     origin: vec3f,
-    _padding1: f32,
+    steps: u32,
     direction: vec3f,
-    _padding2: f32
+    stepSize: f32
 };
 
 @group(0) @binding(4) var<uniform> uniforms: vsUniforms;
@@ -26,7 +26,7 @@ fn main_vs(@builtin(vertex_index) vertexIndex: u32) -> VertexOutput {
 
     if (rayIndex < arrayLength(&rayBuffer)) {
         let ray = rayBuffer[rayIndex];
-        let rayPos = select(ray.origin, ray.origin + ray.direction, isStartPoint);
+        let rayPos = select(ray.origin, ray.origin + ray.direction * f32(ray.steps) * ray.stepSize, isStartPoint);
         output.position = uniforms.viewProjection * vec4f(rayPos, 1.0);
         output.color = vec4f(0.0, 1.0, 0.5, 1.0);
     } else {
