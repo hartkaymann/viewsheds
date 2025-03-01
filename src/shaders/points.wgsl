@@ -20,8 +20,7 @@ struct VertexOutput {
 fn main(@location(0) position: vec4f, @builtin(vertex_index) vIndex: u32) -> VertexOutput {
     var output: VertexOutput;
     
-    let worldPos = vec4f(position.xyz, 1.0);	
-    output.position = uniforms.viewProjection * worldPos;
+    output.position = uniforms.viewProjection * position;
 
     
     let isVisible = getBoolean(vIndex);

@@ -1,26 +1,32 @@
 import { Scene } from "./scene";
 import { Renderer } from "./renderer";
 import { Camera } from "./camera";
-import { event } from "jquery";
 import { InputHandler } from "./input-handler";
-import { LASFile } from "./laslaz.js";
 
-const canvas: HTMLCanvasElement = <HTMLCanvasElement>document.getElementById("gfx-main");
+async function main() {
 
-const camera: Camera = new Camera(
-    0,
-    Math.PI / 2,
-    5,
-    [0, 1, 0],
-    [0, 0, 0],
-    45,
-    canvas.width / canvas.height,
-    0.1,
-    100);
-const scene: Scene = new Scene(camera);
+    const canvas: HTMLCanvasElement = <HTMLCanvasElement>document.getElementById("gfx-main");
 
-const inputHandler = new InputHandler(canvas, camera, scene);
+    const camera: Camera = new Camera(
+        0,
+        Math.PI / 2,
+        10,
+        [0, 1, 0],
+        [0, 0, 0],
+        45,
+        canvas.width / canvas.height,
+        0.1,
+        1000
+    );
 
-const renderer = new Renderer(canvas, scene);
+    const scene: Scene = new Scene(camera);
+    const inputHandler = new InputHandler(canvas, camera, scene);
+    const renderer = new Renderer(canvas, scene);
 
-renderer.init();
+    console.log("Initializing scene...");
+    await scene.init();
+
+    renderer.init();
+}
+
+main().catch(console.error);

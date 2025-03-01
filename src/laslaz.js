@@ -1,5 +1,5 @@
 // LAS/LAZ loading
-//
+// Originally from: https://github.com/verma/plasio
 
 import { Promise } from "bluebird";
 

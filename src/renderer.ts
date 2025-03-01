@@ -287,8 +287,8 @@ export class Renderer {
             },
             primitive: {
                 topology: 'triangle-list',
-                cullMode: 'back',
-                frontFace: 'ccw'
+                // cullMode: 'back',
+                // frontFace: 'ccw'
             }
         });
 

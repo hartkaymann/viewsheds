@@ -8,13 +8,12 @@ export class Scene {
     camera: Camera
 
     points: Float32Array;
+    colors: Float32Array;
     indices: Uint32Array;
     triangleCount: number;
 
     constructor(camera: Camera) {
         this.camera = camera;
-
-        this.init();
     }
 
     async init() {
@@ -45,14 +44,51 @@ export class Scene {
 
             // Read and process points
             const totalPoints = header.pointsCount;
+            const pointsToExtract = 10;
             console.log(`Total Points: ${totalPoints}`);
 
-            // Example: Read first 1000 points
-            const data = await lasFile.readData(10, 0, 1);
+            const data = await lasFile.readData(pointsToExtract, 0, 1);
             console.log("Read Data:", data);
 
             const decoder = new LASDecoder(data.buffer, totalPoints, header);
-            const point0 = decoder.getPoint(0);
+            this.points = new Float32Array(pointsToExtract * 4);
+            this.colors = new Float32Array(pointsToExtract * 4);
+
+            for (let i = 0; i < pointsToExtract; i++) {
+                const point = decoder.getPoint(i);
+
+                let position = vec3.create();
+                vec3.multiply(position, point.position, header.scale);
+                vec3.add(position, position, header.offset);
+
+                // Normalize the position to be within 0 to 1 based on header maxs and mins
+                position[0] = position[0] - header.mins[0];
+                position[1] = position[1] - header.mins[1];
+                position[2] = position[2] - header.mins[2];
+
+                this.points[i * 4] = position[0];
+                this.points[i * 4 + 1] = position[1];
+                this.points[i * 4 + 2] = position[2];
+                this.points[i * 4 + 3] = 1.0; // w
+
+                let color = vec3.create();
+                vec3.scale(color, point.color, 1 / 255);
+
+                this.colors[i * 4] = color[0];
+                this.colors[i * 4 + 1] = color[1];
+                this.colors[i * 4 + 2] = color[2];
+                this.colors[i * 4 + 3] = 1.0; // alpha
+            }
+
+            const coords = new Float64Array(pointsToExtract * 2);
+            for (let i = 0; i < pointsToExtract; i++) {
+                coords[i * 2] = this.points[i * 4];       // x coordinate
+                coords[i * 2 + 1] = this.points[i * 4 + 1]; // y coordinate
+            }
+
+            const delaunay = new Delaunator(coords);
+            this.indices = new Uint32Array(delaunay.triangles);
+            this.triangleCount = delaunay.triangles.length / 3;
 
             // Close the file
             await lasFile.close();
