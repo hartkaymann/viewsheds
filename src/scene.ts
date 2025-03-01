@@ -1,7 +1,7 @@
 import { vec2, vec3 } from "gl-matrix";
 import { Camera } from "./camera";
 import Delaunator from "delaunator";
-import { LASFile } from "./laslaz.js";
+import { LASDecoder, LASFile } from "./laslaz";
 
 export class Scene {
 
@@ -19,22 +19,24 @@ export class Scene {
 
     async init() {
         // this.loadPLYFromURL("/model/galleon.ply");
-        await this.loadLASorLAZ("./model/80049_1525964_M-34-63-B-b-1-4-4-3.laz");
+        const url = "./model/80049_1525964_M-34-63-B-b-1-4-4-3.laz";
+        await this.fetchAndProcessLASorLAZ(url);
     }
 
-    async loadLASorLAZ(url: string) {
+
+    async fetchAndProcessLASorLAZ(url: string) {
         try {
             console.log(`Fetching binary data from: ${url}`);
 
-            // Fetch the LAZ/LAS file as an ArrayBuffer using XMLHttpRequest method
-            const buffer = await this.getBinary(url, (loaded, total) => {
-                console.log(`Progress: ${(loaded / total) * 100}%`);
-            });
+            // Fetch the LAZ/LAS file as an ArrayBuffer
+            const response = await fetch(url);
+            if (!response.ok) throw new Error(`Failed to load file: ${response.statusText}`);
+            const arrayBuffer = await response.arrayBuffer();
 
             console.log("Successfully fetched file, initializing LAS/LAZ parser...");
 
             // Use LASFile from laslaz.js
-            const lasFile = new LASFile(buffer);
+            const lasFile = new LASFile(arrayBuffer);
             await lasFile.open();
 
             // Read the header
@@ -45,12 +47,19 @@ export class Scene {
             const totalPoints = header.pointsCount;
             console.log(`Total Points: ${totalPoints}`);
 
+            // Example: Read first 1000 points
+            const data = await lasFile.readData(10, 0, 1);
+            console.log("Read Data:", data);
+
+            const decoder = new LASDecoder(data.buffer, totalPoints, header);
+            const point0 = decoder.getPoint(0);
+
+            // Close the file
             await lasFile.close();
         } catch (error) {
             console.error("Error loading LAS/LAZ file:", error);
         }
     }
-
     async getBinary(url: string, progressCallback: (loaded: number, total: number) => void): Promise<ArrayBuffer> {
         return new Promise((resolve, reject) => {
             const oReq = new XMLHttpRequest();

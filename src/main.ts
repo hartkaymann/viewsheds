@@ -3,6 +3,7 @@ import { Renderer } from "./renderer";
 import { Camera } from "./camera";
 import { event } from "jquery";
 import { InputHandler } from "./input-handler";
+import { LASFile } from "./laslaz.js";
 
 const canvas: HTMLCanvasElement = <HTMLCanvasElement>document.getElementById("gfx-main");
 
@@ -23,4 +24,3 @@ const inputHandler = new InputHandler(canvas, camera, scene);
 const renderer = new Renderer(canvas, scene);
 
 renderer.init();
-
