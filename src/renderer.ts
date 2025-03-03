@@ -2,6 +2,7 @@ import compute_src from "./shaders/compute.wgsl"
 import triangles_src from "./shaders/triangles.wgsl"
 import points_src from "./shaders/points.wgsl"
 import rays_src from "./shaders/rays.wgsl"
+import gizmo_src from "./shaders/gizmo.wgsl"
 
 import { Scene } from "./scene";
 import { mat4, vec2, vec3 } from "gl-matrix";
@@ -29,22 +30,28 @@ export class Renderer {
     pipelineRenderPoints: GPURenderPipeline;
     pipelineRenderTriangles: GPURenderPipeline;
     pipelineRenderRays: GPURenderPipeline;
+    pipelineRenderGizmo: GPURenderPipeline;
 
     // Bind groups
     bind_group_compute: GPUBindGroup;
     bind_group_render: GPUBindGroup;
+    bind_group_gizmo: GPUBindGroup;
     bind_group_layout_compute: GPUBindGroupLayout;
     bind_group_layout_render: GPUBindGroupLayout;
+    bind_group_layout_gizmo: GPUBindGroupLayout;
 
     raySamples: Uint32Array = new Uint32Array([16, 32]);
 
     // Buffers
     compUniformBuffer: GPUBuffer;
     vsUniformBuffer: GPUBuffer;
+    viewMatrixBuffer: GPUBuffer;
     pointBuffer: GPUBuffer;
+    colorBuffer: GPUBuffer;
     indicesBuffer: GPUBuffer;
     visibilityBuffer: GPUBuffer;
     rayBuffer: GPUBuffer;
+    gizmoBuffer: GPUBuffer;
 
     // Scene to render
     scene: Scene
@@ -87,6 +94,13 @@ export class Renderer {
         });
         this.device.queue.writeBuffer(this.pointBuffer, 0, this.scene.points);
 
+        this.colorBuffer = this.device.createBuffer({
+            label: 'buffer-colors',
+            size: this.scene.colors.byteLength,
+            usage: GPUBufferUsage.VERTEX | GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+        });
+        this.device.queue.writeBuffer(this.colorBuffer, 0, this.scene.colors);
+
         this.indicesBuffer = this.device.createBuffer({
             label: 'buffer-index',
             size: this.scene.indices.byteLength,
@@ -117,6 +131,17 @@ export class Renderer {
             label: 'buffer-ray',
             size: this.raySamples[0] * this.raySamples[1] * 2 * 4 * 4,
             usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST | GPUBufferUsage.VERTEX,
+        });
+
+        this.gizmoBuffer = this.device.createBuffer({
+            size: this.scene.gizmo.byteLength,
+            usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
+        });
+        this.device.queue.writeBuffer(this.gizmoBuffer, 0, this.scene.gizmo);
+
+        this.viewMatrixBuffer = this.device.createBuffer({
+            size: 16 * 4, // mat4 = 16 floats, each float = 4 bytes
+            usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
         });
 
         this.bind_group_layout_compute = this.device.createBindGroupLayout({
@@ -171,6 +196,16 @@ export class Renderer {
             ]
         });
 
+        this.bind_group_layout_gizmo = this.device.createBindGroupLayout({
+            entries: [
+                {
+                    binding: 0, // View matrix
+                    visibility: GPUShaderStage.VERTEX,
+                    buffer: { type: "uniform" },
+                },
+            ],
+        });
+
         this.bind_group_compute = this.device.createBindGroup({
             label: 'comp_bind_group',
             layout: this.bind_group_layout_compute,
@@ -193,6 +228,16 @@ export class Renderer {
             ]
         });
 
+        this.bind_group_gizmo = this.device.createBindGroup({
+            layout: this.bind_group_layout_gizmo,
+            entries: [
+                {
+                    binding: 0,
+                    resource: { buffer: this.viewMatrixBuffer },
+                },
+            ],
+        });
+
         const pipeline_layout_compute = this.device.createPipelineLayout({
             label: 'compute-layout',
             bindGroupLayouts: [this.bind_group_layout_compute]
@@ -200,6 +245,10 @@ export class Renderer {
         const pipeline_layout_render = this.device.createPipelineLayout({
             label: 'render-layout',
             bindGroupLayouts: [this.bind_group_layout_render]
+        });
+        const pipeline_layout_gizmo = this.device.createPipelineLayout({
+            label: 'gizmo-layout',
+            bindGroupLayouts: [this.bind_group_layout_gizmo]
         });
 
         const computeShaderModule = this.device.createShaderModule({ code: compute_src });
@@ -221,10 +270,20 @@ export class Renderer {
                 entryPoint: 'main',
                 buffers: [
                     {
-                        arrayStride: 4 * 4, // 4 floats per vertex, 4 bytes per float
+                        arrayStride: 4 * 4, // 4 floats per position
                         attributes: [
                             {
-                                shaderLocation: 0,
+                                shaderLocation: 0, // Position
+                                offset: 0,
+                                format: 'float32x4'
+                            }
+                        ]
+                    },
+                    {
+                        arrayStride: 4 * 4, // 4 floats per color
+                        attributes: [
+                            {
+                                shaderLocation: 1, // Color
                                 offset: 0,
                                 format: 'float32x4'
                             }
@@ -312,6 +371,32 @@ export class Renderer {
             }
         });
 
+        const gizmoShaderModule = this.device.createShaderModule({ code: gizmo_src });
+        this.pipelineRenderGizmo = this.device.createRenderPipeline({
+            label: 'render-pipeline-gizmo',
+            layout: pipeline_layout_gizmo,
+            vertex: {
+                module: gizmoShaderModule,
+                entryPoint: 'main',
+                buffers: [
+                    {
+                        arrayStride: 4 * 4, // 3 floats per vertex (position)
+                        attributes: [{ shaderLocation: 0, offset: 0, format: "float32x4" }],
+                    }
+                ],
+            },
+            fragment: {
+                module: gizmoShaderModule,
+                entryPoint: 'main_fs',
+                targets: [
+                    { format: 'bgra8unorm' }
+                ]
+            },
+            primitive: {
+                topology: 'line-list'
+            }
+        });
+
         this.renderPassDescriptor = {
             colorAttachments: [
                 {
@@ -380,6 +465,7 @@ export class Renderer {
             renderPass.setPipeline(this.pipelineRenderPoints);
             renderPass.setBindGroup(0, this.bind_group_render);
             renderPass.setVertexBuffer(0, this.pointBuffer); // Set the vertex buffer
+            renderPass.setVertexBuffer(1, this.colorBuffer); // Set the color buffer
             renderPass.draw(this.scene.points.length / 4, 1);
         } else {
             renderPass.setPipeline(this.pipelineRenderTriangles);
@@ -392,6 +478,12 @@ export class Renderer {
         renderPass.setPipeline(this.pipelineRenderRays);
         renderPass.setBindGroup(0, this.bind_group_render);
         renderPass.draw(2 * this.raySamples[0] * this.raySamples[1], 1);
+
+        renderPass.setPipeline(this.pipelineRenderGizmo);
+        renderPass.setBindGroup(0, this.bind_group_gizmo);
+        this.device.queue.writeBuffer(this.viewMatrixBuffer, 0, new Float32Array(this.scene.camera.viewMatrix));
+        renderPass.setVertexBuffer(0, this.gizmoBuffer);
+        renderPass.draw(6);
 
         renderPass.end();
         this.device.queue.submit([renderEncoder.finish()]);

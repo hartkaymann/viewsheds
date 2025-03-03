@@ -1,7 +1,6 @@
-import { vec3, mat4 } from "gl-matrix"
+import { vec3, mat4 } from "gl-matrix";
 
 export class Camera {
-
     position: vec3;
     front: vec3;
     right: vec3;
@@ -22,28 +21,28 @@ export class Camera {
     projectionMatrix: mat4;
     viewMatrix: mat4;
 
-    constructor(theta: number, phi: number, radius: number, up: number[], center: number[], fov: number, aspect: number, near: number, far: number) {
+    constructor(theta: number, phi: number, radius: number, up: vec3, center: vec3, fov: number, aspect: number, near: number, far: number) {
         this.theta = theta;
         this.phi = phi;
         this.radius = radius;
 
-        this.worldUp = new Float32Array(up)
-        this.center = new Float32Array(center);
-        this.target = new Float32Array(center);
+        this.worldUp = vec3.clone(up);
+        this.center = vec3.clone(center);
+        this.target = vec3.clone(center);
 
-        this.position = [0, 0, 0];
-        this.front = [0, 0, 0];
-        this.right = [0, 0, 0];
-        this.up = [0, 0, 0];
-        
+        this.position = vec3.create();
+        this.front = vec3.create();
+        this.right = vec3.create();
+        this.up = vec3.create();
+
         this.fov = fov;
         this.aspect = aspect;
         this.near = near;
         this.far = far;
-        
+
         this.projectionMatrix = mat4.create();
         this.viewMatrix = mat4.create();
-        
+
         this.update();
     }
 
@@ -51,47 +50,58 @@ export class Camera {
         this.recalculate_vectors();
         this.recalculate_matrices();
     }
-    
+
     recalculate_vectors() {
-        let temp = vec3.create();;
+        const temp = vec3.create();
 
         // Update front
-        let x = Math.sin(this.theta) * Math.sin(this.phi);
-        let y = Math.cos(this.phi);
-        let z = Math.cos(this.theta) * Math.sin(this.phi);
-        vec3.normalize(this.front, [x, y, z]);
+        const x = Math.sin(this.theta) * Math.cos(this.phi);
+        const y = Math.cos(this.theta) * Math.cos(this.phi);
+        const z = Math.sin(this.phi);
+        vec3.set(this.front, x, y, z); // TODO: Update fix, set radius when new target/positoin? Should cover it here?
+        vec3.normalize(this.front, this.front);
 
         // Update position
-        vec3.scale(temp, [x, y, z], this.radius);
-        vec3.add(this.position, this.target, temp)
-        
+        vec3.scale(temp, this.front, this.radius);
+        vec3.sub(this.position, this.target, temp);
+
         // Update right
-        vec3.cross(temp, this.front, this.worldUp);
+        vec3.cross(temp, this.worldUp, this.front);
         vec3.normalize(this.right, temp);
 
         // Update up
-        vec3.cross(temp, this.right, this.front);
+        vec3.cross(temp, this.front, this.right);
         vec3.normalize(this.up, temp);
-    }    
+    }
 
     recalculate_matrices() {
         mat4.lookAt(this.viewMatrix, this.position, this.target, this.up);
         mat4.perspective(this.projectionMatrix, this.fov, this.aspect, this.near, this.far);
     }
 
+    setPosition(position: vec3) {
+        vec3.copy(this.position, position);
+        this.update();
+    }
+
+    setTarget(target: vec3) {
+        vec3.copy(this.target, target);
+        this.update();
+    }
+
     orbit(deltaTheta: number, deltaPhi: number) {
         this.theta += deltaTheta;
         this.phi += deltaPhi;
 
-        // Clamp phi so camera doesn't flipping over
+        // Clamp phi so camera doesn't flip over
         const epsilon = 0.001;
-        this.phi = Math.max(epsilon, Math.min(Math.PI - epsilon, this.phi));
+        this.phi = Math.max(-Math.PI / 2 + epsilon, Math.min(Math.PI / 2 - epsilon, this.phi));
 
         this.update();
     }
 
     zoom(deltaZoom: number) {
-        this.radius = Math.max(0.5, Math.min(1000, this.radius + deltaZoom)); 
+        this.radius = Math.max(0.5, this.radius + deltaZoom);
         this.update();
     }
 }

@@ -1,17 +1,14 @@
 import { mat4, vec3 } from "gl-matrix";
 import { Camera } from "./camera";
 import { Scene } from "./scene";
-import { Raycaster } from "./raycaster";
 
 export class InputHandler {
 
     canvas: HTMLCanvasElement;
     camera: Camera;
     scene: Scene;
-    raycaster: Raycaster;
 
     isMiddleMouseDragging = false;
-    isLeftMouseDragging = false;
     lastMouseX = 0;
     lastMouseY = 0;
 
@@ -19,8 +16,6 @@ export class InputHandler {
         this.canvas = canvas;
         this.camera = camera;
         this.scene = scene;
-
-        this.raycaster = new Raycaster(canvas, camera);
 
         this.init();
     }
@@ -58,10 +53,7 @@ export class InputHandler {
     handleMouseDown(event: MouseEvent) {
         event.preventDefault();
 
-        if (event.button === 0) { // Left mouse button
-            this.isLeftMouseDragging = true;
-        }
-        else if (event.button === 1) { //  Middle mouse button
+        if (event.button === 1) { //  Middle mouse button
             this.isMiddleMouseDragging = true;
             this.canvas.requestPointerLock();
         }
@@ -71,11 +63,6 @@ export class InputHandler {
 
     handleMouseMove(event: MouseEvent) {
         event.preventDefault();
-
-        if (this.isLeftMouseDragging) {
-            const ray = this.raycaster.updateRay(event);
-
-        }
 
         if (this.isMiddleMouseDragging) {
             const { deltaX, deltaY } = this.calculateDelta(event);
@@ -90,10 +77,7 @@ export class InputHandler {
     handleMouseUp(event: MouseEvent) {
         event.preventDefault();
 
-        if (event.button === 0) {
-            this.isLeftMouseDragging = false;
-        }
-        else if (event.button === 1) {
+        if (event.button === 1) {
             this.isMiddleMouseDragging = false;
             document.exitPointerLock();
         }

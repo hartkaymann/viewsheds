@@ -12,6 +12,12 @@ export class Scene {
     indices: Uint32Array;
     triangleCount: number;
 
+    gizmo: Float32Array = new Float32Array([
+        0, 0, 0, 1, 1, 0, 0, 1,
+        0, 0, 0, 1, 0, 1, 0, 1,
+        0, 0, 0, 1, 0, 0, 1, 1,
+    ]);
+
     constructor(camera: Camera) {
         this.camera = camera;
     }
@@ -44,7 +50,7 @@ export class Scene {
 
             // Read and process points
             const totalPoints = header.pointsCount;
-            const pointsToExtract = 100;
+            const pointsToExtract = 10000;
             console.log(`Total Points: ${totalPoints}`);
 
             const data = await lasFile.readData(pointsToExtract, 0, 1);
@@ -92,6 +98,14 @@ export class Scene {
 
             // Close the file
             await lasFile.close();
+
+            //Update camera position to focus on the loaded points
+            const centerX = (header.maxs[0] - header.mins[0]) / 2;
+            const centerY = (header.maxs[1] - header.mins[1]) / 2;
+            const centerZ = (header.maxs[2] - header.mins[2]) / 2;
+            this.camera.setTarget(vec3.fromValues(centerX, centerY, centerZ));
+            this.camera.setPosition(vec3.fromValues(centerX, centerY, centerZ));
+
         } catch (error) {
             console.error("Error loading LAS/LAZ file:", error);
         }

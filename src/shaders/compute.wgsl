@@ -58,8 +58,8 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
 
     let rayDir = normalize(vec3f(
         cos(theta) * sin(phi), // X
-        cos(phi),              // Y
-        sin(theta) * sin(phi)  // Z
+        sin(theta) * sin(phi), // Y
+        cos(phi)              // Z
     ));
 
     var rayPos = rayOrigin;

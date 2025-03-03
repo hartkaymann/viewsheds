@@ -17,7 +17,7 @@ struct VertexOutput {
 };
 
 @vertex
-fn main(@location(0) position: vec4f, @builtin(vertex_index) vIndex: u32) -> VertexOutput {
+fn main(@location(0) position: vec4f, @location(1) color: vec4f, @builtin(vertex_index) vIndex: u32) -> VertexOutput {
     var output: VertexOutput;
     
     output.position = uniforms.viewProjection * position;
@@ -25,6 +25,9 @@ fn main(@location(0) position: vec4f, @builtin(vertex_index) vIndex: u32) -> Ver
     
     let isVisible = getBoolean(vIndex);
     output.color = select(vec4f(1.0, 1.0, 1.0, 1.0), vec4f(1.0, 0.5, 0.3, 1.0), isVisible);
+
+    let colFac = 0.00392156862;
+    output.color = color * vec4f(colFac, colFac, colFac, 1.0);
 
     return output;
 }
