@@ -11,7 +11,7 @@ async function main() {
         0,
         Math.PI / 2,
         10,
-        [0, 0, 1],
+        [0, 1, 0],
         [0, 0, 0],
         Math.PI / 4,
         canvas.width / canvas.height,

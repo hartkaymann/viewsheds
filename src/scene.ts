@@ -103,8 +103,8 @@ export class Scene {
             const centerX = (header.maxs[0] - header.mins[0]) / 2;
             const centerY = (header.maxs[1] - header.mins[1]) / 2;
             const centerZ = (header.maxs[2] - header.mins[2]) / 2;
-            this.camera.setTarget(vec3.fromValues(centerX, centerY, centerZ));
-            this.camera.setPosition(vec3.fromValues(centerX, centerY, centerZ));
+            //this.camera.setTarget(vec3.fromValues(centerX, centerY, centerZ));
+            //this.camera.setPosition(vec3.fromValues(centerX, centerY, centerZ));
 
         } catch (error) {
             console.error("Error loading LAS/LAZ file:", error);
