@@ -68,7 +68,7 @@ export class InputHandler {
             const { deltaX, deltaY } = this.calculateDelta(event);
 
             const orbitSpeed = 0.005;
-            this.camera.orbit(deltaX * -orbitSpeed, deltaY * orbitSpeed);
+            this.camera.orbit(deltaX * orbitSpeed, deltaY * -orbitSpeed);
         }
 
         this.updateLastMousePosition(event);
@@ -86,7 +86,7 @@ export class InputHandler {
     handleWheel(event: WheelEvent) {
         event.preventDefault();
 
-        const zoomSpeed = 0.01;
+        const zoomSpeed = 0.1;
         this.camera.zoom(event.deltaY * zoomSpeed);
     }
 

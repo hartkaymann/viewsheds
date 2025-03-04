@@ -55,9 +55,9 @@ export class Camera {
         const temp = vec3.create();
 
         // Update front
-        const x = Math.sin(this.theta) * Math.cos(this.phi);
-        const y = Math.cos(this.theta) * Math.cos(this.phi);
-        const z = Math.sin(this.phi);
+        const x = Math.sin(this.theta) * Math.sin(this.phi);
+        const y = Math.cos(this.phi);
+        const z = Math.cos(this.theta) * Math.sin(this.phi);
         vec3.set(this.front, x, y, z); // TODO: Update fix, set radius when new target/positoin? Should cover it here?
         vec3.normalize(this.front, this.front);
 
@@ -81,11 +81,13 @@ export class Camera {
 
     setPosition(position: vec3) {
         vec3.copy(this.position, position);
+        this.radius = vec3.distance(this.position, this.target);
         this.update();
     }
 
     setTarget(target: vec3) {
         vec3.copy(this.target, target);
+        this.radius = vec3.distance(this.position, this.target);
         this.update();
     }
 
@@ -95,8 +97,7 @@ export class Camera {
 
         // Clamp phi so camera doesn't flip over
         const epsilon = 0.001;
-        this.phi = Math.max(-Math.PI / 2 + epsilon, Math.min(Math.PI / 2 - epsilon, this.phi));
-
+        this.phi = Math.max(epsilon, Math.min(Math.PI - epsilon, this.phi));
         this.update();
     }
 

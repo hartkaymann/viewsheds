@@ -16,7 +16,7 @@ async function main() {
         Math.PI / 4,
         canvas.width / canvas.height,
         0.1,
-        1000
+        5000
     );
 
     const scene: Scene = new Scene(camera);
