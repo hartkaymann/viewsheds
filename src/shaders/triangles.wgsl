@@ -1,8 +1,10 @@
-struct vsUniforms {
-    viewProjection: mat4x4f
+struct Uniforms {
+    modelMatrix: mat4x4f,
+    viewMatrix: mat4x4f,
+    projectionMatrix: mat4x4f,
 };
 
-@group(0) @binding(4) var<uniform> uniforms: vsUniforms;
+@group(0) @binding(4) var<uniform> uniforms: Uniforms;
 
 struct VertexOutput {
     @builtin(position) position: vec4f,
@@ -12,7 +14,7 @@ struct VertexOutput {
 fn main(@location(0) position: vec4f, @builtin(vertex_index) vIndex: u32) -> VertexOutput {
     var output: VertexOutput;
 
-    output.position = uniforms.viewProjection * position;
+    output.position = uniforms.projectionMatrix * uniforms.viewMatrix * position;
 
     return output;
 }

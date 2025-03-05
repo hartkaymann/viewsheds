@@ -1,9 +1,12 @@
-struct vsUniforms {
-  viewProjection: mat4x4f
+struct Uniforms {
+    modelMatrix: mat4x4f,
+    viewMatrix: mat4x4f,
+    projectionMatrix: mat4x4f,
 };
 
+
 @group(0) @binding(2) var<storage, read> visibilityBuffer: array<u32>;
-@group(0) @binding(4) var<uniform> uniforms: vsUniforms;
+@group(0) @binding(4) var<uniform> uniforms: Uniforms;
 
 fn getBoolean(index: u32) -> bool {
   let wordIndex = index / 32;
@@ -20,7 +23,7 @@ struct VertexOutput {
 fn main(@location(0) position: vec4f, @location(1) color: vec4f, @builtin(vertex_index) vIndex: u32) -> VertexOutput {
     var output: VertexOutput;
     
-    output.position = uniforms.viewProjection * position;
+    output.position = uniforms.projectionMatrix * uniforms.viewMatrix * position;
 
     
     let isVisible = getBoolean(vIndex);

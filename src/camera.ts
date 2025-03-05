@@ -1,4 +1,4 @@
-import { vec3, mat4 } from "gl-matrix";
+import { vec3, mat4, quat } from "gl-matrix";
 
 export class Camera {
     position: vec3;
@@ -7,6 +7,8 @@ export class Camera {
     up: vec3;
     center: vec3;
     worldUp: vec3;
+    rotationSpeed: number;
+    panSpeed: number;
 
     fov: number;
     aspect: number;
@@ -42,6 +44,8 @@ export class Camera {
 
         this.projectionMatrix = mat4.create();
         this.viewMatrix = mat4.create();
+
+        this.rotationSpeed = 0.01;
 
         this.update();
     }
@@ -91,14 +95,56 @@ export class Camera {
         this.update();
     }
 
-    orbit(deltaTheta: number, deltaPhi: number) {
-        this.theta += deltaTheta;
-        this.phi += deltaPhi;
+    rotate(deltaX: number, deltaY: number) {
+        const yawAngle = deltaX * this.rotationSpeed;
+        const pitchAngle = deltaY * this.rotationSpeed;
 
-        // Clamp phi so camera doesn't flip over
-        const epsilon = 0.001;
-        this.phi = Math.max(epsilon, Math.min(Math.PI - epsilon, this.phi));
-        this.update();
+        let qYaw = quat.create();
+        quat.setAxisAngle(qYaw, vec3.fromValues(0, 1, 0), yawAngle);
+
+        let direction = vec3.sub(vec3.create(), this.position, this.target);
+        let right = vec3.create();
+        vec3.cross(right, direction, this.up);
+        vec3.normalize(right, right);
+
+        let qPitch = quat.create();
+        quat.setAxisAngle(qPitch, right, pitchAngle);
+
+        let q = quat.create();
+        quat.multiply(q, qPitch, qYaw);
+
+        let directionNew = vec3.create();
+        vec3.transformQuat(directionNew, direction, q);
+
+        vec3.add(this.position, this.target, directionNew);
+
+        this.recalculate_matrices();
+    }
+
+    pan(deltaX: number, deltaY: number) {
+        const panX = deltaX * this.panSpeed;
+        const panY = deltaY * this.panSpeed;
+
+        let direction = vec3.create();    
+        vec3.sub(direction, this.target, this.position);
+        vec3.normalize(direction, direction);
+
+        let right = vec3.create();
+        vec3.cross(right, direction, this.up);
+        vec3.normalize(right, right);
+
+        let up = vec3.create();
+        vec3.cross(up, right, direction);
+        vec3.normalize(up, up);
+
+        let panOffset = vec3.create();
+        vec3.scaleAndAdd(panOffset, panOffset, right, panX);
+        vec3.scaleAndAdd(panOffset, panOffset, up, panY);
+
+        vec3.add(this.position, this.position, panOffset);
+        vec3.add(this.target, this.target, panOffset);
+
+        this.recalculate_matrices();
     }
 
     zoom(deltaZoom: number) {

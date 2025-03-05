@@ -67,8 +67,7 @@ export class InputHandler {
         if (this.isMiddleMouseDragging) {
             const { deltaX, deltaY } = this.calculateDelta(event);
 
-            const orbitSpeed = 0.005;
-            this.camera.orbit(deltaX * orbitSpeed, deltaY * -orbitSpeed);
+            this.camera.rotate(deltaX, deltaY);
         }
 
         this.updateLastMousePosition(event);
