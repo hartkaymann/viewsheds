@@ -20,9 +20,10 @@ struct VertexOutput {
 fn main(input: VertexInput) -> VertexOutput {
     var output: VertexOutput;
     
-    output.position = uniforms.projectionMatrix * uniforms.viewMatrix * uniforms.modelMatrix * input.position;
+    let worldPosition = uniforms.modelMatrix * vec4(input.position.xyz, 1.0);
+    output.position = uniforms.projectionMatrix * uniforms.viewMatrix * worldPosition;
 
-    output.color = input.position.rgb + vec3f(0.5, 0.5, 0.5);
+    output.color = input.position.xyz;
     return output;
 }
 

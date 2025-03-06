@@ -22,8 +22,6 @@ export class Renderer {
     //Assets
     color_buffer: GPUTexture;
     color_buffer_view: GPUTextureView;
-    sampler: GPUSampler;
-    sceneParameters: GPUBuffer;
 
     // Pipeline objects
     pipelineCompute: GPUComputePipeline;
@@ -51,6 +49,7 @@ export class Renderer {
     visibilityBuffer: GPUBuffer;
     rayBuffer: GPUBuffer;
     gizmoVertexBuffer: GPUBuffer;
+    gizmoUniformsBuffer: GPUBuffer;
 
     // Scene to render
     scene: Scene
@@ -138,6 +137,12 @@ export class Renderer {
         });
         this.device.queue.writeBuffer(this.gizmoVertexBuffer, 0, this.scene.gizmo);
 
+        this.gizmoUniformsBuffer = this.device.createBuffer({
+            label: 'uniforms-gizmo',
+            size: 192,
+            usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+        });
+
         this.bind_group_layout_compute = this.device.createBindGroupLayout({
             label: 'comp_layout',
             entries: [
@@ -193,7 +198,7 @@ export class Renderer {
         this.bind_group_layout_gizmo = this.device.createBindGroupLayout({
             entries: [
                 {
-                    binding: 0, // View matrix
+                    binding: 0,
                     visibility: GPUShaderStage.VERTEX,
                     buffer: { type: "uniform" },
                 },
@@ -227,7 +232,7 @@ export class Renderer {
             entries: [
                 {
                     binding: 0,
-                    resource: { buffer: this.vsUniformBuffer },
+                    resource: { buffer: this.gizmoUniformsBuffer },
                 },
             ],
         });
@@ -374,7 +379,7 @@ export class Renderer {
                 entryPoint: 'main',
                 buffers: [
                     {
-                        arrayStride: 4 * 4, // 3 floats per vertex (position)
+                        arrayStride: 4 * 4,
                         attributes: [{ shaderLocation: 0, offset: 0, format: "float32x4" }],
                     }
                 ],
@@ -388,7 +393,6 @@ export class Renderer {
             },
             primitive: {
                 topology: 'line-list',
-                cullMode: 'none',
             }
         });
 
@@ -442,58 +446,74 @@ export class Renderer {
     }
 
     runRenderPass() {
-        // this.device.queue.writeBuffer(this.vsUniformBuffer, 64, new Float32Array(this.scene.camera.viewMatrix));
-        // this.device.queue.writeBuffer(this.vsUniformBuffer, 128, new Float32Array(this.scene.camera.projectionMatrix));
+        this.device.queue.writeBuffer(this.vsUniformBuffer, 64, new Float32Array(this.scene.camera.viewMatrix));
+        this.device.queue.writeBuffer(this.vsUniformBuffer, 128, new Float32Array(this.scene.camera.projectionMatrix));
 
         const colorTexture = this.context.getCurrentTexture();
-        // this.renderPassDescriptor.colorAttachments[0].view = colorTexture.createView();
-
-        const commandEncoder: GPUCommandEncoder = this.device.createCommandEncoder();
-        // const renderPass: GPURenderPassEncoder = commandEncoder.beginRenderPass(this.renderPassDescriptor);
-        // const renderPointsCheckbox = <HTMLInputElement>document.getElementById("renderPoints");
-        // const renderPoints = renderPointsCheckbox.checked;
-
-        // if (renderPoints) {
-        //     renderPass.setPipeline(this.pipelineRenderPoints);
-        //     renderPass.setBindGroup(0, this.bind_group_render);
-        //     renderPass.setVertexBuffer(0, this.pointBuffer); // Set the vertex buffer
-        //     renderPass.setVertexBuffer(1, this.colorBuffer); // Set the color buffer
-        //     renderPass.draw(this.scene.points.length / 4, 1);
-        // } else {
-        //     renderPass.setPipeline(this.pipelineRenderTriangles);
-        //     renderPass.setBindGroup(0, this.bind_group_render);
-        //     renderPass.setVertexBuffer(0, this.pointBuffer);
-        //     renderPass.setIndexBuffer(this.indicesBuffer, "uint32");
-        //     renderPass.drawIndexed(this.scene.indices.length, 1, 0, 0, 0);
-        // }
-
-        // // Render rays
-        // renderPass.setPipeline(this.pipelineRenderRays);
-        // renderPass.setBindGroup(0, this.bind_group_render);
-        // renderPass.draw(2 * this.raySamples[0] * this.raySamples[1], 1);
-        // renderPass.end();
-
-        // Render gizmo
-        let rotationMatrix = mat4.create();
-        mat4.fromQuat(rotationMatrix, mat4.getRotation(quat.create(), this.scene.camera.viewMatrix));
-
-        let gizmoModel = mat4.create();
-        mat4.translate(gizmoModel, gizmoModel, vec3.fromValues(0.8, 0.8, 0.0));
-        mat4.multiply(gizmoModel, gizmoModel, rotationMatrix);
-        mat4.scale(gizmoModel, gizmoModel, vec3.fromValues(0.2, 0.2, 0.2));
-
-        let gizmoView = mat4.create();
-        
-        let gizmoProjection = mat4.create();
-        mat4.ortho(gizmoProjection, -this.scene.camera.aspect, this.scene.camera.aspect, -1, 1, -1, 1);
-
-        this.device.queue.writeBuffer(this.vsUniformBuffer, 0, new Float32Array(gizmoModel));
-        this.device.queue.writeBuffer(this.vsUniformBuffer, 64, new Float32Array(gizmoView));
-        this.device.queue.writeBuffer(this.vsUniformBuffer, 128, new Float32Array(gizmoProjection));
-
         this.renderPassDescriptor.colorAttachments[0].view = colorTexture.createView();
 
-        const gizmoPass: GPURenderPassEncoder = commandEncoder.beginRenderPass(this.renderPassDescriptor);
+        const commandEncoder: GPUCommandEncoder = this.device.createCommandEncoder();
+        const renderPass: GPURenderPassEncoder = commandEncoder.beginRenderPass(this.renderPassDescriptor);
+
+        const renderPointsCheckbox = <HTMLInputElement>document.getElementById("renderPoints");
+        const renderPoints = renderPointsCheckbox.checked;
+
+        if (renderPoints) {
+            renderPass.setPipeline(this.pipelineRenderPoints);
+            renderPass.setBindGroup(0, this.bind_group_render);
+            renderPass.setVertexBuffer(0, this.pointBuffer); // Set the vertex buffer
+            renderPass.setVertexBuffer(1, this.colorBuffer); // Set the color buffer
+            renderPass.draw(this.scene.points.length / 4, 1);
+        } else {
+            renderPass.setPipeline(this.pipelineRenderTriangles);
+            renderPass.setBindGroup(0, this.bind_group_render);
+            renderPass.setVertexBuffer(0, this.pointBuffer);
+            renderPass.setIndexBuffer(this.indicesBuffer, "uint32");
+            renderPass.drawIndexed(this.scene.indices.length, 1, 0, 0, 0);
+        }
+
+        // Render rays
+        renderPass.setPipeline(this.pipelineRenderRays);
+        renderPass.setBindGroup(0, this.bind_group_render);
+        renderPass.draw(2 * this.raySamples[0] * this.raySamples[1], 1);
+        renderPass.end();
+
+        const gizmoPassDescriptor : GPURenderPassDescriptor = {
+            colorAttachments: [
+                {
+                    view: colorTexture.createView(),
+                    loadOp: "load",
+                    storeOp: "store",
+                },
+            ],
+        };
+
+        // Render gizmo
+        let vr = mat3.create();// View rotation
+        mat3.fromMat4(vr, this.scene.camera.viewMatrix);
+        let rotationMatrix = mat4.fromValues(
+            vr[0], vr[1], vr[2], 0,
+            vr[3], vr[4], vr[5], 0,
+            vr[6], vr[7], vr[8], 0,
+            0, 0, 0, 1);
+
+        let gizmoModel = mat4.create();
+        mat4.scale(gizmoModel, gizmoModel, vec3.fromValues(0.1, 0.1, 0.1));
+        mat4.multiply(gizmoModel, gizmoModel, rotationMatrix);
+        gizmoModel[12] = 0.8;
+        gizmoModel[13] = 0.8;   
+
+        let gizmoView = mat4.create();
+        mat4.identity(gizmoView);
+
+        let gizmoProjection = mat4.create();
+        mat4.ortho(gizmoProjection, 0, 1, 0, 1, -2, 1);
+
+        this.device.queue.writeBuffer(this.gizmoUniformsBuffer, 0, new Float32Array(gizmoModel));
+        this.device.queue.writeBuffer(this.gizmoUniformsBuffer, 64, new Float32Array(gizmoView));
+        this.device.queue.writeBuffer(this.gizmoUniformsBuffer, 128, new Float32Array(gizmoProjection));
+
+        const gizmoPass: GPURenderPassEncoder = commandEncoder.beginRenderPass(gizmoPassDescriptor);
         gizmoPass.setPipeline(this.pipelineRenderGizmo);
         gizmoPass.setBindGroup(0, this.bind_group_gizmo);
         gizmoPass.setVertexBuffer(0, this.gizmoVertexBuffer);

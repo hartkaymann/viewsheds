@@ -73,7 +73,7 @@ export class Scene {
                 position[2] = position[2] - header.mins[2];
 
                 this.points[i * 4] = position[0];
-                this.points[i * 4 + 1] = position[2];
+                this.points[i * 4 + 1] = position[2]; // swap y and z
                 this.points[i * 4 + 2] = position[1];
                 this.points[i * 4 + 3] = 1.0; // w
 

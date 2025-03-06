@@ -2,40 +2,29 @@ import { vec3, mat4, quat } from "gl-matrix";
 
 export class Camera {
     position: vec3;
-    front: vec3;
+    target: vec3;
     right: vec3;
     up: vec3;
-    center: vec3;
     worldUp: vec3;
+
+    orientation: quat;
+
     rotationSpeed: number;
     panSpeed: number;
+    zoomSpeed: number;
 
     fov: number;
     aspect: number;
     near: number;
     far: number;
-    radius: number;
-    theta: number;
-    phi: number;
-
-    target: vec3;
 
     projectionMatrix: mat4;
     viewMatrix: mat4;
 
-    constructor(theta: number, phi: number, radius: number, up: vec3, center: vec3, fov: number, aspect: number, near: number, far: number) {
-        this.theta = theta;
-        this.phi = phi;
-        this.radius = radius;
-
-        this.worldUp = vec3.clone(up);
-        this.center = vec3.clone(center);
-        this.target = vec3.clone(center);
-
-        this.position = vec3.create();
-        this.front = vec3.create();
-        this.right = vec3.create();
-        this.up = vec3.create();
+    constructor(position: vec3, target: vec3, up: vec3, fov: number, aspect: number, near: number, far: number) {
+        this.position = vec3.clone(position);
+        this.target = vec3.clone(target);
+        this.up = vec3.clone(up);
 
         this.fov = fov;
         this.aspect = aspect;
@@ -45,92 +34,88 @@ export class Camera {
         this.projectionMatrix = mat4.create();
         this.viewMatrix = mat4.create();
 
+        this.orientation = quat.create();
+        let direction = vec3.create();
+        vec3.sub(direction, this.target, this.position);
+        vec3.normalize(direction, direction);
+        quat.rotationTo(this.orientation, vec3.fromValues(0, 0, -1), direction);
+
         this.rotationSpeed = 0.01;
+        this.panSpeed = 0.2;
+        this.zoomSpeed = 0.3;
 
-        this.update();
+        this.updateView();
+        this.setProjection();
     }
 
-    update() {
-        this.recalculate_vectors();
-        this.recalculate_matrices();
-    }
-
-    recalculate_vectors() {
-        const temp = vec3.create();
-
-        // Update front
-        const x = Math.sin(this.theta) * Math.sin(this.phi);
-        const y = Math.cos(this.phi);
-        const z = Math.cos(this.theta) * Math.sin(this.phi);
-        vec3.set(this.front, x, y, z); // TODO: Update fix, set radius when new target/positoin? Should cover it here?
-        vec3.normalize(this.front, this.front);
-
-        // Update position
-        vec3.scale(temp, this.front, this.radius);
-        vec3.sub(this.position, this.target, temp);
-
-        // Update right
-        vec3.cross(temp, this.worldUp, this.front);
-        vec3.normalize(this.right, temp);
-
-        // Update up
-        vec3.cross(temp, this.front, this.right);
-        vec3.normalize(this.up, temp);
-    }
-
-    recalculate_matrices() {
+    updateView() {
         mat4.lookAt(this.viewMatrix, this.position, this.target, this.up);
+    }
+
+    setProjection() {
         mat4.perspective(this.projectionMatrix, this.fov, this.aspect, this.near, this.far);
     }
 
     setPosition(position: vec3) {
         vec3.copy(this.position, position);
-        this.radius = vec3.distance(this.position, this.target);
-        this.update();
+        this.updateView();
     }
 
     setTarget(target: vec3) {
         vec3.copy(this.target, target);
-        this.radius = vec3.distance(this.position, this.target);
-        this.update();
+        this.updateView();
     }
 
     rotate(deltaX: number, deltaY: number) {
-        const yawAngle = deltaX * this.rotationSpeed;
-        const pitchAngle = deltaY * this.rotationSpeed;
+        const pitchAngle = deltaX * this.rotationSpeed;
+        const yawAngle = -deltaY * this.rotationSpeed;
 
-        let qYaw = quat.create();
-        quat.setAxisAngle(qYaw, vec3.fromValues(0, 1, 0), yawAngle);
+        const yawQuat = quat.create();
+        quat.setAxisAngle(yawQuat, vec3.fromValues(0, 1, 0), pitchAngle);
 
-        let direction = vec3.sub(vec3.create(), this.position, this.target);
+        let forward = vec3.create();
+        vec3.sub(forward, this.target, this.position);
+        vec3.normalize(forward, forward);
+
         let right = vec3.create();
-        vec3.cross(right, direction, this.up);
+        if (Math.abs(vec3.dot(this.up, forward)) > 0.9999) {
+            //Gimal lock situation
+            vec3.cross(right, vec3.fromValues(1, 0, 0), this.up);
+        }
+        else {
+            vec3.cross(right, this.up, forward);
+        }
         vec3.normalize(right, right);
 
-        let qPitch = quat.create();
-        quat.setAxisAngle(qPitch, right, pitchAngle);
+        const pitchQuat = quat.create();
+        quat.setAxisAngle(pitchQuat, right, yawAngle);
 
-        let q = quat.create();
-        quat.multiply(q, qPitch, qYaw);
+        const rotation = quat.create();
+        quat.multiply(rotation, rotation, pitchQuat);
+        quat.multiply(rotation, yawQuat, rotation);
+        quat.normalize(this.orientation, rotation);
 
-        let directionNew = vec3.create();
-        vec3.transformQuat(directionNew, direction, q);
+        let initialOffset = vec3.create();
+        vec3.sub(initialOffset, this.position, this.target);
 
-        vec3.add(this.position, this.target, directionNew);
+        let rotatedOffset = vec3.create();
+        vec3.transformQuat(rotatedOffset, initialOffset, this.orientation);
 
-        this.recalculate_matrices();
+        vec3.add(this.position, this.target, rotatedOffset);
+
+        this.updateView();
     }
 
     pan(deltaX: number, deltaY: number) {
         const panX = deltaX * this.panSpeed;
         const panY = deltaY * this.panSpeed;
 
-        let direction = vec3.create();    
+        let direction = vec3.create();
         vec3.sub(direction, this.target, this.position);
         vec3.normalize(direction, direction);
 
         let right = vec3.create();
-        vec3.cross(right, direction, this.up);
+        vec3.cross(right, this.up, direction);
         vec3.normalize(right, right);
 
         let up = vec3.create();
@@ -144,11 +129,15 @@ export class Camera {
         vec3.add(this.position, this.position, panOffset);
         vec3.add(this.target, this.target, panOffset);
 
-        this.recalculate_matrices();
+        this.updateView();
     }
 
     zoom(deltaZoom: number) {
-        this.radius = Math.max(0.5, this.radius + deltaZoom);
-        this.update();
+        let direction = vec3.create();
+        vec3.sub(direction, this.target, this.position);
+        vec3.normalize(direction, direction);
+
+        vec3.add(this.position, this.position, vec3.scale(vec3.create(), direction, deltaZoom * this.zoomSpeed));
+        this.updateView();
     }
 }

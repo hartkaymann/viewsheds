@@ -85,8 +85,7 @@ export class InputHandler {
     handleWheel(event: WheelEvent) {
         event.preventDefault();
 
-        const zoomSpeed = 0.1;
-        this.camera.zoom(event.deltaY * zoomSpeed);
+        this.camera.zoom(event.deltaY);
     }
 
 }

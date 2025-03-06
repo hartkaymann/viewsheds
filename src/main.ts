@@ -8,15 +8,13 @@ async function main() {
     const canvas: HTMLCanvasElement = <HTMLCanvasElement>document.getElementById("gfx-main");
 
     const camera: Camera = new Camera(
-        0,
-        Math.PI / 2,
-        10,
-        [0, 0, 1],
+        [10, 10, 10],
         [0, 0, 0],
+        [0, 1, 0],
         Math.PI / 4,
         canvas.width / canvas.height,
         0.1,
-        5000
+        10000
     );
 
     const scene: Scene = new Scene(camera);
