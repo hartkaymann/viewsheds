@@ -4,8 +4,9 @@ export class Camera {
     position: vec3;
     target: vec3;
     right: vec3;
-    up: vec3;
     worldUp: vec3;
+    up: vec3;
+    forward: vec3;
 
     orientation: quat;
 
@@ -24,6 +25,7 @@ export class Camera {
     constructor(position: vec3, target: vec3, up: vec3, fov: number, aspect: number, near: number, far: number) {
         this.position = vec3.clone(position);
         this.target = vec3.clone(target);
+        this.worldUp = vec3.clone(up);
         this.up = vec3.clone(up);
 
         this.fov = fov;
@@ -34,6 +36,10 @@ export class Camera {
         this.projectionMatrix = mat4.create();
         this.viewMatrix = mat4.create();
 
+        this.forward = vec3.create();
+        vec3.sub(this.forward, this.target, this.position);
+        vec3.normalize(this.forward, this.forward);
+
         this.orientation = quat.create();
         let direction = vec3.create();
         vec3.sub(direction, this.target, this.position);
@@ -41,8 +47,8 @@ export class Camera {
         quat.rotationTo(this.orientation, vec3.fromValues(0, 0, -1), direction);
 
         this.rotationSpeed = 0.01;
-        this.panSpeed = 0.2;
-        this.zoomSpeed = 0.3;
+        this.panSpeed = 0.02;
+        this.zoomSpeed = 0.01;
 
         this.updateView();
         this.setProjection();
@@ -73,18 +79,8 @@ export class Camera {
         const yawQuat = quat.create();
         quat.setAxisAngle(yawQuat, vec3.fromValues(0, 1, 0), pitchAngle);
 
-        let forward = vec3.create();
-        vec3.sub(forward, this.target, this.position);
-        vec3.normalize(forward, forward);
-
         let right = vec3.create();
-        if (Math.abs(vec3.dot(this.up, forward)) > 0.9999) {
-            //Gimal lock situation
-            vec3.cross(right, vec3.fromValues(1, 0, 0), this.up);
-        }
-        else {
-            vec3.cross(right, this.up, forward);
-        }
+        vec3.cross(right, this.up, this.forward);
         vec3.normalize(right, right);
 
         const pitchQuat = quat.create();
@@ -103,19 +99,23 @@ export class Camera {
 
         vec3.add(this.position, this.target, rotatedOffset);
 
+        // Update forward and up vectors
+        vec3.transformQuat(this.up, this.up, this.orientation);
+        vec3.transformQuat(this.forward, this.forward, this.orientation);
+
         this.updateView();
     }
 
     pan(deltaX: number, deltaY: number) {
         const panX = deltaX * this.panSpeed;
-        const panY = deltaY * this.panSpeed;
+        const panY = -deltaY * this.panSpeed;
 
         let direction = vec3.create();
         vec3.sub(direction, this.target, this.position);
         vec3.normalize(direction, direction);
 
         let right = vec3.create();
-        vec3.cross(right, this.up, direction);
+        vec3.cross(right, this.worldUp, direction);
         vec3.normalize(right, right);
 
         let up = vec3.create();
@@ -137,7 +137,18 @@ export class Camera {
         vec3.sub(direction, this.target, this.position);
         vec3.normalize(direction, direction);
 
-        vec3.add(this.position, this.position, vec3.scale(vec3.create(), direction, deltaZoom * this.zoomSpeed));
+        const distance = vec3.distance(this.position, this.target);
+        let zoomAmount = deltaZoom * this.zoomSpeed * (distance / 10);
+
+        let newDistance = distance - zoomAmount;
+        if (newDistance < this.near) {
+            zoomAmount = distance - this.near;
+        }
+
+        vec3.scale(direction, direction, zoomAmount);
+        vec3.add(this.position, this.position, direction);
+
+        vec3.add(this.position, this.position, direction);
         this.updateView();
     }
 }

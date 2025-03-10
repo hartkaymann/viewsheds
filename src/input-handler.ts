@@ -9,6 +9,7 @@ export class InputHandler {
     scene: Scene;
 
     isMiddleMouseDragging = false;
+    isLeftMouseDragging = false;
     lastMouseX = 0;
     lastMouseY = 0;
 
@@ -53,10 +54,15 @@ export class InputHandler {
     handleMouseDown(event: MouseEvent) {
         event.preventDefault();
 
-        if (event.button === 1) { //  Middle mouse button
+        if (event.button === 0) { //  Middle mouse button
+            this.isLeftMouseDragging = true;
+            this.canvas.requestPointerLock();
+        } 
+        else if (event.button === 1) { //  Middle mouse button
             this.isMiddleMouseDragging = true;
             this.canvas.requestPointerLock();
         }
+
 
         this.updateLastMousePosition(event);
     }
@@ -64,11 +70,14 @@ export class InputHandler {
     handleMouseMove(event: MouseEvent) {
         event.preventDefault();
 
-        if (this.isMiddleMouseDragging) {
+        if (this.isLeftMouseDragging) {
             const { deltaX, deltaY } = this.calculateDelta(event);
+            this.camera.pan(deltaX, deltaY);
 
+        } else if (this.isMiddleMouseDragging) {
+            const { deltaX, deltaY } = this.calculateDelta(event);
             this.camera.rotate(deltaX, deltaY);
-        }
+        } 
 
         this.updateLastMousePosition(event);
     }
@@ -76,7 +85,11 @@ export class InputHandler {
     handleMouseUp(event: MouseEvent) {
         event.preventDefault();
 
-        if (event.button === 1) {
+        if (event.button === 0) {
+            this.isLeftMouseDragging = false;
+            document.exitPointerLock();
+        }
+        else if (event.button === 1) {
             this.isMiddleMouseDragging = false;
             document.exitPointerLock();
         }
@@ -85,7 +98,7 @@ export class InputHandler {
     handleWheel(event: WheelEvent) {
         event.preventDefault();
 
-        this.camera.zoom(event.deltaY);
+        this.camera.zoom(-event.deltaY);
     }
 
 }
