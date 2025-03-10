@@ -27,6 +27,7 @@ export class Camera {
         this.target = vec3.clone(target);
         this.worldUp = vec3.clone(up);
         this.up = vec3.clone(up);
+        this.right = vec3.create();
 
         this.fov = fov;
         this.aspect = aspect;
@@ -64,11 +65,13 @@ export class Camera {
 
     setPosition(position: vec3) {
         vec3.copy(this.position, position);
+        this.updateVectors();
         this.updateView();
     }
 
     setTarget(target: vec3) {
         vec3.copy(this.target, target);
+        this.updateVectors()
         this.updateView();
     }
 
@@ -107,8 +110,8 @@ export class Camera {
     }
 
     pan(deltaX: number, deltaY: number) {
-        const panX = deltaX * this.panSpeed;
-        const panY = -deltaY * this.panSpeed;
+        const panX = -deltaX * this.panSpeed;
+        const panY = deltaY * this.panSpeed;
 
         let direction = vec3.create();
         vec3.sub(direction, this.target, this.position);
@@ -151,4 +154,16 @@ export class Camera {
         vec3.add(this.position, this.position, direction);
         this.updateView();
     }
+
+    private updateVectors() {
+        vec3.subtract(this.forward, this.target, this.position);
+        vec3.normalize(this.forward, this.forward);
+
+        vec3.cross(this.right, this.forward, this.worldUp);
+        vec3.normalize(this.right, this.right);
+
+        vec3.cross(this.up, this.right, this.forward);
+        vec3.normalize(this.up, this.up);
+    }
+
 }

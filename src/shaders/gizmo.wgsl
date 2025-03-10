@@ -23,7 +23,7 @@ fn main(input: VertexInput) -> VertexOutput {
     let worldPosition = uniforms.modelMatrix * vec4(input.position.xyz, 1.0);
     output.position = uniforms.projectionMatrix * uniforms.viewMatrix * worldPosition;
 
-    output.color = input.position.xyz;
+    output.color = input.position.xyz + vec3(0.2, 0.2, 0.2);
     return output;
 }
 

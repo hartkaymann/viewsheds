@@ -1,11 +1,11 @@
 import compute_src from "./shaders/compute.wgsl"
-import triangles_src from "./shaders/triangles.wgsl"
+import wireframe_src from "./shaders/wireframe.wgsl"
 import points_src from "./shaders/points.wgsl"
 import rays_src from "./shaders/rays.wgsl"
 import gizmo_src from "./shaders/gizmo.wgsl"
 
 import { Scene } from "./scene";
-import { mat3, mat4, quat, vec2, vec3 } from "gl-matrix";
+import { mat3, mat4, vec3 } from "gl-matrix";
 
 
 export class Renderer {
@@ -26,7 +26,7 @@ export class Renderer {
     // Pipeline objects
     pipelineCompute: GPUComputePipeline;
     pipelineRenderPoints: GPURenderPipeline;
-    pipelineRenderTriangles: GPURenderPipeline;
+    pipelineRenderWireframe: GPURenderPipeline;
     pipelineRenderRays: GPURenderPipeline;
     pipelineRenderGizmo: GPURenderPipeline;
 
@@ -69,11 +69,11 @@ export class Renderer {
 
     async init() {
 
-        // adapter: wrapper around (physical) GPU.
-        // Describes features and limits
         this.adapter = <GPUAdapter>await navigator.gpu?.requestAdapter();
-        // device: wrapper around GPU functionality
-        // Function calls are made through the device
+        if (!this.adapter) {
+            console.error("WebGPU not supported");
+            return;
+        }
         this.device = <GPUDevice>await this.adapter?.requestDevice();
 
         this.context = <GPUCanvasContext>this.canvas.getContext("webgpu");
@@ -85,26 +85,29 @@ export class Renderer {
             alphaMode: "opaque"
         });
 
+        const pointBufferSize = Math.min(this.scene.points.byteLength, this.device.limits.maxStorageBufferBindingSize);
         this.pointBuffer = this.device.createBuffer({
             label: 'buffer-points',
-            size: this.scene.points.byteLength,
+            size: pointBufferSize,
             usage: GPUBufferUsage.VERTEX | GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
         });
-        this.device.queue.writeBuffer(this.pointBuffer, 0, this.scene.points);
+        this.device.queue.writeBuffer(this.pointBuffer, 0, this.scene.points, 0, pointBufferSize / Float32Array.BYTES_PER_ELEMENT);
 
+        const colorBufferSize = Math.min(this.scene.colors.byteLength, this.device.limits.maxStorageBufferBindingSize);
         this.colorBuffer = this.device.createBuffer({
             label: 'buffer-colors',
-            size: this.scene.colors.byteLength,
+            size: colorBufferSize,
             usage: GPUBufferUsage.VERTEX | GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
         });
-        this.device.queue.writeBuffer(this.colorBuffer, 0, this.scene.colors);
+        this.device.queue.writeBuffer(this.colorBuffer, 0, this.scene.colors, 0, colorBufferSize / Float32Array.BYTES_PER_ELEMENT);
 
+        const indicesBufferSize = Math.min(this.scene.indices.byteLength, this.device.limits.maxStorageBufferBindingSize);
         this.indicesBuffer = this.device.createBuffer({
             label: 'buffer-index',
-            size: this.scene.indices.byteLength,
+            size: indicesBufferSize,
             usage: GPUBufferUsage.INDEX | GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
         });
-        this.device.queue.writeBuffer(this.indicesBuffer, 0, this.scene.indices);
+        this.device.queue.writeBuffer(this.indicesBuffer, 0, this.scene.indices, 0, indicesBufferSize / Uint32Array.BYTES_PER_ELEMENT);
 
         const visibilityBufferSize = Math.ceil(this.scene.points.length / 3 / 32) * Uint32Array.BYTES_PER_ELEMENT;
         this.visibilityBuffer = this.device.createBuffer({
@@ -178,6 +181,16 @@ export class Renderer {
             label: 'render_layout',
             entries: [
                 {
+                    binding: 0,
+                    visibility: GPUShaderStage.VERTEX,
+                    buffer: { type: "read-only-storage" }
+                },
+                {
+                    binding: 1,
+                    visibility: GPUShaderStage.VERTEX,
+                    buffer: { type: "read-only-storage" }
+                },
+                {
                     binding: 2,
                     visibility: GPUShaderStage.VERTEX,
                     buffer: { type: "read-only-storage" }
@@ -221,6 +234,8 @@ export class Renderer {
             label: 'render_bind_group',
             layout: this.bind_group_layout_render,
             entries: [
+                { binding: 0, resource: { buffer: this.pointBuffer } },
+                { binding: 1, resource: { buffer: this.indicesBuffer } }, // Check if this is needed, as the vertex/indices buffer is not used in the point and ray shader
                 { binding: 2, resource: { buffer: this.visibilityBuffer } },
                 { binding: 4, resource: { buffer: this.vsUniformBuffer } },
                 { binding: 5, resource: { buffer: this.rayBuffer } }
@@ -269,7 +284,7 @@ export class Renderer {
                 entryPoint: 'main',
                 buffers: [
                     {
-                        arrayStride: 4 * 4, // 4 floats per position
+                        arrayStride: 4 * 4, // 4 floats @ 4 bytes
                         attributes: [
                             {
                                 shaderLocation: 0, // Position
@@ -279,7 +294,7 @@ export class Renderer {
                         ]
                     },
                     {
-                        arrayStride: 4 * 4, // 4 floats per color
+                        arrayStride: 4 * 4, // 4 floats @ 4 bytes
                         attributes: [
                             {
                                 shaderLocation: 1, // Color
@@ -314,39 +329,25 @@ export class Renderer {
             primitive: {
                 topology: 'point-list'
             }
-        })
+        });
 
-        const triangleShaderModule = this.device.createShaderModule({ code: triangles_src });
-        this.pipelineRenderTriangles = this.device.createRenderPipeline({
+        const wireframeShaderModule = this.device.createShaderModule({ code: wireframe_src });
+        this.pipelineRenderWireframe = this.device.createRenderPipeline({
             label: 'render-pipeline',
             layout: pipeline_layout_render,
             vertex: {
-                module: triangleShaderModule,
+                module: wireframeShaderModule,
                 entryPoint: 'main',
-                buffers: [
-                    {
-                        arrayStride: 4 * 4, // 4 floats per vertex, 4 bytes per float
-                        attributes: [
-                            {
-                                shaderLocation: 0,
-                                offset: 0,
-                                format: 'float32x4'
-                            }
-                        ]
-                    }
-                ]
             },
             fragment: {
-                module: triangleShaderModule,
+                module: wireframeShaderModule,
                 entryPoint: 'main_fs',
                 targets: [
-                    { format: 'bgra8unorm' } // presentationFormat
+                    { format: 'bgra8unorm' }
                 ]
             },
             primitive: {
-                topology: 'triangle-list',
-                // cullMode: 'back',
-                // frontFace: 'ccw'
+                topology: 'line-list',
             }
         });
 
@@ -392,7 +393,7 @@ export class Renderer {
                 ]
             },
             primitive: {
-                topology: 'line-list',
+                topology: 'line-strip',
             }
         });
 
@@ -463,13 +464,12 @@ export class Renderer {
             renderPass.setBindGroup(0, this.bind_group_render);
             renderPass.setVertexBuffer(0, this.pointBuffer); // Set the vertex buffer
             renderPass.setVertexBuffer(1, this.colorBuffer); // Set the color buffer
-            renderPass.draw(this.scene.points.length / 4, 1);
+            const pointsToDraw = this.pointBuffer.size / 16;
+            renderPass.draw(pointsToDraw, 1);
         } else {
-            renderPass.setPipeline(this.pipelineRenderTriangles);
+            renderPass.setPipeline(this.pipelineRenderWireframe);
             renderPass.setBindGroup(0, this.bind_group_render);
-            renderPass.setVertexBuffer(0, this.pointBuffer);
-            renderPass.setIndexBuffer(this.indicesBuffer, "uint32");
-            renderPass.drawIndexed(this.scene.indices.length, 1, 0, 0, 0);
+            renderPass.draw(4, this.scene.triangleCount); // 1 -> 2 -> 3 -> 1
         }
 
         // Render rays
@@ -478,7 +478,7 @@ export class Renderer {
         renderPass.draw(2 * this.raySamples[0] * this.raySamples[1], 1);
         renderPass.end();
 
-        const gizmoPassDescriptor : GPURenderPassDescriptor = {
+        const gizmoPassDescriptor: GPURenderPassDescriptor = {
             colorAttachments: [
                 {
                     view: colorTexture.createView(),
@@ -500,14 +500,15 @@ export class Renderer {
         let gizmoModel = mat4.create();
         mat4.scale(gizmoModel, gizmoModel, vec3.fromValues(0.1, 0.1, 0.1));
         mat4.multiply(gizmoModel, gizmoModel, rotationMatrix);
-        gizmoModel[12] = 0.8;
-        gizmoModel[13] = 0.8;   
+        let aspectRatio = this.scene.camera.aspect;
+        gizmoModel[12] = aspectRatio - 0.15;
+        gizmoModel[13] = 0.85;
 
         let gizmoView = mat4.create();
         mat4.identity(gizmoView);
 
         let gizmoProjection = mat4.create();
-        mat4.ortho(gizmoProjection, 0, 1, 0, 1, -2, 1);
+        mat4.ortho(gizmoProjection, 0, aspectRatio, 0, 1, -2, 1);
 
         this.device.queue.writeBuffer(this.gizmoUniformsBuffer, 0, new Float32Array(gizmoModel));
         this.device.queue.writeBuffer(this.gizmoUniformsBuffer, 64, new Float32Array(gizmoView));
@@ -568,6 +569,8 @@ export class Renderer {
                 label: 'render_bind_group',
                 layout: this.bind_group_layout_render,
                 entries: [
+                    { binding: 0, resource: { buffer: this.pointBuffer } },
+                    { binding: 1, resource: { buffer: this.indicesBuffer } },
                     { binding: 2, resource: { buffer: this.visibilityBuffer } },
                     { binding: 4, resource: { buffer: this.vsUniformBuffer } },
                     { binding: 5, resource: { buffer: this.rayBuffer } }

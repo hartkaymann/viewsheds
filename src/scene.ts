@@ -50,17 +50,19 @@ export class Scene {
 
             // Read and process points
             const totalPoints = header.pointsCount;
-            const pointsToExtract = 10000;
+            const pointsToExtract = 10000000;
             console.log(`Total Points: ${totalPoints}`);
 
-            const data = await lasFile.readData(pointsToExtract, 0, 1);
+            const data = await lasFile.readData(totalPoints, 0, 1);
             console.log("Read Data:", data);
 
             const decoder = new LASDecoder(data.buffer, totalPoints, header);
             this.points = new Float32Array(pointsToExtract * 4);
             this.colors = new Float32Array(pointsToExtract * 4);
 
-            for (let i = 0; i < pointsToExtract; i++) {
+            let extractedCount = 0;
+            const step = Math.floor(totalPoints / pointsToExtract);
+            for (let i = 0; i < totalPoints && extractedCount < pointsToExtract; i += step) {
                 const point = decoder.getPoint(i);
 
                 let position = vec3.create();
@@ -72,24 +74,26 @@ export class Scene {
                 position[1] = position[1] - header.mins[1];
                 position[2] = position[2] - header.mins[2];
 
-                this.points[i * 4] = position[0];
-                this.points[i * 4 + 1] = position[2]; // swap y and z
-                this.points[i * 4 + 2] = position[1];
-                this.points[i * 4 + 3] = 1.0; // w
+                this.points[extractedCount * 4] = position[0];
+                this.points[extractedCount * 4 + 1] = position[2]; // swap y and z
+                this.points[extractedCount * 4 + 2] = position[1];
+                this.points[extractedCount * 4 + 3] = 1.0; // w
 
                 let color = vec3.create();
                 vec3.scale(color, point.color, 1 / 255);
 
-                this.colors[i * 4] = color[0];
-                this.colors[i * 4 + 1] = color[1];
-                this.colors[i * 4 + 2] = color[2];
-                this.colors[i * 4 + 3] = 1.0; // alpha
+                this.colors[extractedCount * 4] = color[0];
+                this.colors[extractedCount * 4 + 1] = color[1];
+                this.colors[extractedCount * 4 + 2] = color[2];
+                this.colors[extractedCount * 4 + 3] = 1.0; // alpha
+
+                extractedCount++;
             }
 
             const coords = new Float64Array(pointsToExtract * 2);
             for (let i = 0; i < pointsToExtract; i++) {
-                coords[i * 2] = this.points[i * 4];       // x coordinate
-                coords[i * 2 + 1] = this.points[i * 4 + 1]; // y coordinate
+                coords[i * 2] = this.points[i * 4];         // x coordinate
+                coords[i * 2 + 1] = this.points[i * 4 + 2]; // y coordinate
             }
 
             const delaunay = new Delaunator(coords);
@@ -103,8 +107,8 @@ export class Scene {
             const centerX = (header.maxs[0] - header.mins[0]) / 2;
             const centerY = (header.maxs[2] - header.mins[2]) / 2;
             const centerZ = (header.maxs[1] - header.mins[1]) / 2;
-            //this.camera.setPosition(vec3.fromValues(centerX, centerY, centerZ + 10));
-            //this.camera.setTarget(vec3.fromValues(centerX, centerY, centerZ));
+            this.camera.setPosition(vec3.fromValues(centerX, centerY, centerZ + (1 / header.scale[2]) * 10));
+            this.camera.setTarget(vec3.fromValues(centerX, centerY, centerZ));
 
         } catch (error) {
             console.error("Error loading LAS/LAZ file:", error);

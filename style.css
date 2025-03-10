@@ -1,14 +1,23 @@
 body {
   margin: 0;
+  padding: 0;
   background: #e4e4e4;
   color: #0a0a0a;
 }
 
-canvas#gfx-main {
-  float: left;
+div#container {
+  padding: 1em;
 }
 
-div#debug{
-  margin-left: 800px;
-  padding-left: 16px;
+canvas#gfx-main {
+  border: 1px solid orangered;
+}
+
+div#debug {
+  padding-left: 0.5em;
+}
+
+h2 {
+  font-size: 1.5em;
+  margin-bottom: 0.2em;
 }

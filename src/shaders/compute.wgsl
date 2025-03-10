@@ -70,7 +70,7 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
         rayPos += rayDir * stepSize; // Move the ray forward
         stepsTaken = i + 1u;
 
-        for (var j = 0u; j < arrayLength(&indexBuffer) / 3; j++) {
+        for (var j = 0u; j < 3 ; j++) { // For full array: arrayLength(&indexBuffer) / 3
             let v0 = pointCloud[indexBuffer[j * 3 + 0]].xyz;
             let v1 = pointCloud[indexBuffer[j * 3 + 1]].xyz;
             let v2 = pointCloud[indexBuffer[j * 3 + 2]].xyz;
