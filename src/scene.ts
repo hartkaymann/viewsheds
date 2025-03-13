@@ -50,7 +50,7 @@ export class Scene {
 
             // Read and process points
             const totalPoints = header.pointsCount;
-            const pointsToExtract = 10000000;
+            const pointsToExtract = 10;
             console.log(`Total Points: ${totalPoints}`);
 
             const data = await lasFile.readData(totalPoints, 0, 1);

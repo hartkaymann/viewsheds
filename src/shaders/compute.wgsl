@@ -16,7 +16,7 @@ struct Ray {
     stepSize: f32
 };
 
-@group(0) @binding(0) var<storage, read> pointCloud: array<vec4f>;
+@group(0) @binding(0) var<storage, read> positionsBuffer: array<vec4f>;
 @group(0) @binding(1) var<storage, read> indexBuffer: array<u32>;
 @group(0) @binding(2) var<storage, read_write> visibilityBuffer: array<atomic<u32>>;
 @group(0) @binding(3) var<uniform> uniforms: compUniforms;
@@ -44,6 +44,12 @@ fn rayStepIntersectsTriangle(rayStepPos: vec3<f32>, rayDir: vec3<f32>, v0: vec3<
     return t > 0.00001 && t < 1.0;// Adjusted threshold for precision
 }
 
+fn markHit(index: u32) {
+    let wordIndex = index / 32;
+    let bitIndex = index % 32;
+    atomicOr(&visibilityBuffer[wordIndex], (1u << bitIndex));
+}
+
 @compute @workgroup_size(1, 1, 1)
 fn main(@builtin(global_invocation_id) id: vec3<u32>) {
     let rayOrigin = uniforms.rayOrigin;
@@ -58,8 +64,8 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
 
     let rayDir = normalize(vec3f(
         cos(theta) * sin(phi), // X
-        sin(theta) * sin(phi), // Y
-        cos(phi)               // Z
+        cos(phi),              // Y
+        sin(theta) * sin(phi)  // Z
     ));
 
     var rayPos = rayOrigin;
@@ -70,15 +76,20 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
         rayPos += rayDir * stepSize; // Move the ray forward
         stepsTaken = i + 1u;
 
-        for (var j = 0u; j < 3 ; j++) { // For full array: arrayLength(&indexBuffer) / 3
-            let v0 = pointCloud[indexBuffer[j * 3 + 0]].xyz;
-            let v1 = pointCloud[indexBuffer[j * 3 + 1]].xyz;
-            let v2 = pointCloud[indexBuffer[j * 3 + 2]].xyz;
+        for (var j = 0u; j < arrayLength(&indexBuffer) / 3 ; j++) {
+            let i0 = indexBuffer[j * 3 + 0];
+            let i1 = indexBuffer[j * 3 + 1];
+            let i2 = indexBuffer[j * 3 + 2];
+
+            let v0 = positionsBuffer[i0].xyz;
+            let v1 = positionsBuffer[i1].xyz;
+            let v2 = positionsBuffer[i2].xyz;
 
             if (rayStepIntersectsTriangle(rayPos, rayDir, v0, v1, v2)) {
-                let wordIndex = j / 32;
-                let bitIndex = j % 32;
-                atomicOr(&visibilityBuffer[wordIndex], (1u << bitIndex));
+                markHit(i0);
+                markHit(i1);
+                markHit(i2);
+
                 hit = true;
                 break;
             }

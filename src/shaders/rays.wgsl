@@ -32,9 +32,8 @@ fn main_vs(@builtin(vertex_index) vertexIndex: u32) -> VertexOutput {
         output.position = uniforms.projectionMatrix * uniforms.viewMatrix * vec4f(rayPos, 1.0);
         output.color = vec4f(0.0, 1.0, 0.5, 1.0);
     } else {
-        // Handle out-of-bounds case (optional)
         output.position = vec4f(0.0, 0.0, 0.0, 1.0);
-        output.color = vec4f(1.0, 0.0, 0.0, 1.0); // Red color for debugging
+        output.color = vec4f(1.0, 0.0, 0.0, 1.0);
     }
 
     return output;

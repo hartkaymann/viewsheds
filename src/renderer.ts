@@ -347,7 +347,7 @@ export class Renderer {
                 ]
             },
             primitive: {
-                topology: 'line-list',
+                topology: 'line-strip',
             }
         });
 
