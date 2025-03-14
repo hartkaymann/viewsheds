@@ -3,6 +3,7 @@
 
 import { Promise } from "bluebird";
 
+
 const pointFormatReaders = {
     0: function(dv) {
         return {

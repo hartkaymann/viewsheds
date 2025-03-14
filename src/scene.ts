@@ -2,6 +2,7 @@ import { vec2, vec3 } from "gl-matrix";
 import { Camera } from "./camera";
 import Delaunator from "delaunator";
 import { LASDecoder, LASFile } from "./laslaz";
+import { MortonSorter, QuadTree } from "./optimization";
 
 export class Scene {
 
@@ -11,6 +12,7 @@ export class Scene {
     colors: Float32Array;
     indices: Uint32Array;
     triangleCount: number;
+    tree: QuadTree;
 
     gizmo: Float32Array = new Float32Array([
         0, 0, 0, 1, 1, 0, 0, 1,
@@ -27,7 +29,6 @@ export class Scene {
         const url = "./model/80049_1525964_M-34-63-B-b-1-4-4-3.laz";
         await this.fetchAndProcessLASorLAZ(url);
     }
-
 
     async fetchAndProcessLASorLAZ(url: string) {
         try {
@@ -50,7 +51,7 @@ export class Scene {
 
             // Read and process points
             const totalPoints = header.pointsCount;
-            const pointsToExtract = 10;
+            const pointsToExtract = 1000;
             console.log(`Total Points: ${totalPoints}`);
 
             const data = await lasFile.readData(totalPoints, 0, 1);
@@ -69,7 +70,6 @@ export class Scene {
                 vec3.multiply(position, point.position, header.scale);
                 vec3.add(position, position, header.offset);
 
-                // Normalize the position to be within 0 to 1 based on header maxs and mins
                 position[0] = position[0] - header.mins[0];
                 position[1] = position[1] - header.mins[1];
                 position[2] = position[2] - header.mins[2];
@@ -93,12 +93,8 @@ export class Scene {
             const coords = new Float64Array(pointsToExtract * 2);
             for (let i = 0; i < pointsToExtract; i++) {
                 coords[i * 2] = this.points[i * 4];         // x coordinate
-                coords[i * 2 + 1] = this.points[i * 4 + 2]; // y coordinate
+                coords[i * 2 + 1] = this.points[i * 4 + 2]; // z coordinate
             }
-
-            const delaunay = new Delaunator(coords);
-            this.indices = new Uint32Array(delaunay.triangles);
-            this.triangleCount = delaunay.triangles.length / 3;
 
             // Close the file
             await lasFile.close();
@@ -110,10 +106,26 @@ export class Scene {
             this.camera.setPosition(vec3.fromValues(centerX, centerY, centerZ + (1 / header.scale[2]) * 10));
             this.camera.setTarget(vec3.fromValues(centerX, centerY, centerZ));
 
+            let bounds = { x: 0, z: 0, width: header.maxs[0] - header.mins[0], height: header.maxs[1] - header.mins[1] }
+            
+            // Sort points 
+            let sorter = new MortonSorter();
+            this.points = sorter.sort(this.points, { minX: bounds.x, minZ: bounds.z, maxX: bounds.width, maxZ: bounds.height });
+            
+            // Create quad tree
+            this.tree = new QuadTree(bounds);
+            this.tree.assignPoints(this.points);
+
+            // Triangulate
+            const delaunay = new Delaunator(coords);
+            this.indices = new Uint32Array(delaunay.triangles);
+            this.triangleCount = delaunay.triangles.length / 3;
+
         } catch (error) {
             console.error("Error loading LAS/LAZ file:", error);
         }
     }
+
     async getBinary(url: string, progressCallback: (loaded: number, total: number) => void): Promise<ArrayBuffer> {
         return new Promise((resolve, reject) => {
             const oReq = new XMLHttpRequest();
