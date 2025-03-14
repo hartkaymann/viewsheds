@@ -76,7 +76,7 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
         rayPos += rayDir * stepSize; // Move the ray forward
         stepsTaken = i + 1u;
 
-        for (var j = 0u; j < arrayLength(&indexBuffer) / 3 ; j++) {
+        for (var j = 0u; j <  arrayLength(&indexBuffer) / 3 ; j++) {
             let i0 = indexBuffer[j * 3 + 0];
             let i1 = indexBuffer[j * 3 + 1];
             let i2 = indexBuffer[j * 3 + 2];

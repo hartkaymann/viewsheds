@@ -89,13 +89,6 @@ export class Scene {
 
                 extractedCount++;
             }
-
-            const coords = new Float64Array(pointsToExtract * 2);
-            for (let i = 0; i < pointsToExtract; i++) {
-                coords[i * 2] = this.points[i * 4];         // x coordinate
-                coords[i * 2 + 1] = this.points[i * 4 + 2]; // z coordinate
-            }
-
             // Close the file
             await lasFile.close();
 
@@ -110,13 +103,22 @@ export class Scene {
             
             // Sort points 
             let sorter = new MortonSorter();
-            this.points = sorter.sort(this.points, { minX: bounds.x, minZ: bounds.z, maxX: bounds.width, maxZ: bounds.height });
+            let { sortedPoints, sortedIndices } = sorter.sort(this.points, { minX: bounds.x, minZ: bounds.z, maxX: bounds.width, maxZ: bounds.height });
             
+            this.points = sortedPoints;
+            this.colors = this.reorderColors(this.colors, sortedIndices);
+
             // Create quad tree
             this.tree = new QuadTree(bounds, 8);
             this.tree.assignPoints(this.points);
 
             // Triangulate
+            const coords = new Float64Array(pointsToExtract * 2);
+            for (let i = 0; i < pointsToExtract; i++) {
+                coords[i * 2] = this.points[i * 4];         // x coordinate
+                coords[i * 2 + 1] = this.points[i * 4 + 2]; // z coordinate
+            }
+
             const delaunay = new Delaunator(coords);
             this.indices = new Uint32Array(delaunay.triangles);
             this.triangleCount = delaunay.triangles.length / 3;
@@ -126,6 +128,19 @@ export class Scene {
         } catch (error) {
             console.error("Error loading LAS/LAZ file:", error);
         }
+    }
+
+    reorderColors(colors: Float32Array, sortedIndices: Uint32Array): Float32Array {
+        const colorSize = 4; // (r, g, b, a)
+        const sortedColors = new Float32Array(colors.length);
+    
+        sortedIndices.forEach((oldIndex, newIndex) => {
+            const oldOffset = oldIndex * colorSize;
+            const newOffset = newIndex * colorSize;
+            sortedColors.set(colors.subarray(oldOffset, oldOffset + colorSize), newOffset);
+        });
+    
+        return sortedColors;
     }
 
     async getBinary(url: string, progressCallback: (loaded: number, total: number) => void): Promise<ArrayBuffer> {

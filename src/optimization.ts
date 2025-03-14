@@ -98,12 +98,17 @@ export class MortonSorter {
 
     }
 
-    sort(points: Float32Array, bounds: { minX: number, minZ: number, maxX: number, maxZ: number }): Float32Array {
+    sort(
+        points: Float32Array,
+        bounds: { minX: number, minZ: number, maxX: number, maxZ: number }): 
+        { sortedPoints: Float32Array, sortedIndices: Uint32Array } {
+
         const pointSize = 4; // Each point has 4 components (x, y, z, w)
+        const numPoints = points.length / pointSize;
 
         // Compute Morton code for each point
         let pointMortonPairs = [];
-        for (let i = 0; i < points.length / pointSize; i++) {
+        for (let i = 0; i < numPoints; i++) {
             const offset = i * pointSize;
             const mortonCode = this.computeMortonCodeXZ(points.subarray(offset, offset + pointSize), bounds);
             pointMortonPairs.push({ index: i, mortonCode });
@@ -114,13 +119,17 @@ export class MortonSorter {
 
         // Reorder points based on sorted Morton codes
         const sortedPoints = new Float32Array(points.length);
+        const sortedIndices = new Uint32Array(numPoints);
+
         pointMortonPairs.forEach((pair, newIndex) => {
             const oldOffset = pair.index * pointSize;
             const newOffset = newIndex * pointSize;
             sortedPoints.set(points.subarray(oldOffset, oldOffset + pointSize), newOffset);
+            sortedIndices[newIndex] = pair.index; // Store original index mapping
+
         });
 
-        return sortedPoints;
+        return { sortedPoints, sortedIndices };
     }
 
     computeMortonCodeXZ(
