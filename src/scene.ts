@@ -113,13 +113,15 @@ export class Scene {
             this.points = sorter.sort(this.points, { minX: bounds.x, minZ: bounds.z, maxX: bounds.width, maxZ: bounds.height });
             
             // Create quad tree
-            this.tree = new QuadTree(bounds);
+            this.tree = new QuadTree(bounds, 8);
             this.tree.assignPoints(this.points);
 
             // Triangulate
             const delaunay = new Delaunator(coords);
             this.indices = new Uint32Array(delaunay.triangles);
             this.triangleCount = delaunay.triangles.length / 3;
+
+            // TODO: Check if tree works, how do i access tree smart with ray position and load only those parts? 
 
         } catch (error) {
             console.error("Error loading LAS/LAZ file:", error);

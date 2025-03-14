@@ -51,8 +51,8 @@ class QuadTreeNode {
 export class QuadTree {
     root: QuadTreeNode;
 
-    constructor(bounds: AABB) {
-        this.root = new QuadTreeNode(bounds, 4);
+    constructor(bounds: AABB, depth: number) {
+        this.root = new QuadTreeNode(bounds, depth);
     }
 
     assignPoints(sortedPoints: Float32Array): void {
