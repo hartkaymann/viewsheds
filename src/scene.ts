@@ -27,6 +27,9 @@ export class Scene {
     async init() {
         // this.loadPLYFromURL("/model/galleon.ply");
         const url = "./model/80049_1525964_M-34-63-B-b-1-4-4-3.laz";
+
+        // TODO: Use IndexDB to store point data (based on model? where does it store? when does it delete?)`
+        // TODO: Abstract function and only execute loading for non-cached models, then create tree etc.
         await this.fetchAndProcessLASorLAZ(url);
     }
 
@@ -51,7 +54,7 @@ export class Scene {
 
             // Read and process points
             const totalPoints = header.pointsCount;
-            const pointsToExtract = 1000;
+            const pointsToExtract = totalPoints;
             console.log(`Total Points: ${totalPoints}`);
 
             const data = await lasFile.readData(totalPoints, 0, 1);
@@ -99,18 +102,37 @@ export class Scene {
             this.camera.setPosition(vec3.fromValues(centerX, centerY, centerZ + (1 / header.scale[2]) * 10));
             this.camera.setTarget(vec3.fromValues(centerX, centerY, centerZ));
 
-            let bounds = { x: 0, z: 0, width: header.maxs[0] - header.mins[0], height: header.maxs[1] - header.mins[1] }
-            
+            // Get accurate bounds 
+            const pointStride = 4;
+            const minMax = this.points.reduce((acc, _, i) => {
+                if (i % pointStride !== 0) return acc; // Skip unnecessary indices
+                const x = this.points[i];
+                const z = this.points[i + 2];
+
+                acc.minX = Math.min(acc.minX, x);
+                acc.minZ = Math.min(acc.minZ, z);
+                acc.maxX = Math.max(acc.maxX, x);
+                acc.maxZ = Math.max(acc.maxZ, z);
+
+                return acc;
+            }, { minX: Infinity, minZ: Infinity, maxX: -Infinity, maxZ: -Infinity });
+
             // Sort points 
             let sorter = new MortonSorter();
-            let { sortedPoints, sortedIndices } = sorter.sort(this.points, { minX: bounds.x, minZ: bounds.z, maxX: bounds.width, maxZ: bounds.height });
-            
+            let { sortedPoints, sortedIndices } = sorter.sort(this.points, minMax);
+
             this.points = sortedPoints;
             this.colors = this.reorderColors(this.colors, sortedIndices);
 
             // Create quad tree
-            this.tree = new QuadTree(bounds, 8);
+            this.tree = new QuadTree({
+                x: minMax.minX,
+                z: minMax.minZ,
+                width: minMax.maxX - minMax.minX,
+                height: minMax.maxZ - minMax.minZ,
+            }, 6);
             this.tree.assignPoints(this.points);
+            this.tree.assignIndices();
 
             // Triangulate
             const coords = new Float64Array(pointsToExtract * 2);
@@ -133,13 +155,13 @@ export class Scene {
     reorderColors(colors: Float32Array, sortedIndices: Uint32Array): Float32Array {
         const colorSize = 4; // (r, g, b, a)
         const sortedColors = new Float32Array(colors.length);
-    
+
         sortedIndices.forEach((oldIndex, newIndex) => {
             const oldOffset = oldIndex * colorSize;
             const newOffset = newIndex * colorSize;
             sortedColors.set(colors.subarray(oldOffset, oldOffset + colorSize), newOffset);
         });
-    
+
         return sortedColors;
     }
 

@@ -17,12 +17,14 @@ class QuadTreeNode {
     bounds: AABB;
     startIndex: number;
     count: number;
+    index: number;
 
     constructor(bounds: AABB, depth: number) {
         this.children = null;
         this.bounds = bounds;
         this.startIndex = -1;
         this.count = 0;
+        this.index = -1;
 
         if (depth > 0) {
             const halfW = bounds.width / 2;
@@ -46,6 +48,25 @@ class QuadTreeNode {
         );
     }
 
+    // Recursive depth-first traversal
+    traverse(callback: (node: QuadTreeNode) => void) {
+        callback(this);
+
+        if (this.children) {
+            for (const child of this.children) {
+                child.traverse(callback);
+            }
+        }
+    }
+
+    assignIndices(currentIndex: { value: number }) {
+        this.index = currentIndex.value++;
+        if (this.children) {
+            for (const child of this.children) {
+                child.assignIndices(currentIndex);
+            }
+        }
+    }
 }
 
 export class QuadTree {
@@ -60,12 +81,19 @@ export class QuadTree {
         this.assignPointsRecursive(this.root, sortedPoints, 0, sortedPoints.length / pointSize);
     }
 
+    assignIndices() {
+        this.root.assignIndices({ value: 0 });
+    }
+
     private assignPointsRecursive(node: QuadTreeNode, sortedPoints: Float32Array, startIndex: number, endIndex: number): void {
         if (node.children === null) { // Leaf
             node.startIndex = startIndex;
             node.count = endIndex - startIndex;
             return;
         }
+
+        node.startIndex = startIndex;
+        node.count = 0;
 
         let currentStart = startIndex;
         for (const child of node.children) {
@@ -81,10 +109,47 @@ export class QuadTree {
             if (newEnd > currentStart) {
                 // Assign points to child
                 this.assignPointsRecursive(child, sortedPoints, currentStart, newEnd);
+
+                // Accumulate child counts
+                node.count += child.count;
+
                 currentStart = newEnd;
             }
         }
     }
+
+    flatten(): Uint32Array {
+        const nodeList: QuadTreeNode[] = [];
+
+        this.root.traverse((node) => {
+            nodeList.push(node);
+        });
+
+        const nodeBuffer = new Uint32Array(nodeList.length * 5);
+        nodeList.forEach((node, i) => {
+            nodeBuffer[i * 4] = node.bounds.x;
+            nodeBuffer[i * 4 + 1] = node.bounds.z;
+            nodeBuffer[i * 4 + 2] = node.bounds.width;
+            nodeBuffer[i * 4 + 2] = node.bounds.height;
+            nodeBuffer[i * 4 + 3] = node.index;
+        });
+
+        return nodeBuffer;
+    }
+
+    mapPointsToNodes = (): Uint32Array => {
+        const pointToNodeBuffer = new Uint32Array(this.root.count); // One index per point
+
+        this.root.traverse(node => {
+            if (node.children === null) { // Only assign leaf nodes
+                for (let i = 0; i < node.count; i++) {
+                    pointToNodeBuffer[node.startIndex + i] = node.index; // Assign node ID
+                }
+            }
+        });
+
+        return pointToNodeBuffer;
+    };
 
     static getPointsInNode(node: QuadTreeNode, sortedPoints: Float32Array): Float32Array {
         const pointSize = 4;
@@ -100,8 +165,7 @@ export class MortonSorter {
 
     sort(
         points: Float32Array,
-        bounds: { minX: number, minZ: number, maxX: number, maxZ: number }): 
-        { sortedPoints: Float32Array, sortedIndices: Uint32Array } {
+        bounds: { minX: number, minZ: number, maxX: number, maxZ: number }): { sortedPoints: Float32Array, sortedIndices: Uint32Array } {
 
         const pointSize = 4; // Each point has 4 components (x, y, z, w)
         const numPoints = points.length / pointSize;

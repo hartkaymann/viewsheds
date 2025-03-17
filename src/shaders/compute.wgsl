@@ -50,7 +50,7 @@ fn markHit(index: u32) {
     atomicOr(&visibilityBuffer[wordIndex], (1u << bitIndex));
 }
 
-@compute @workgroup_size(1, 1, 1)
+@compute @workgroup_size(8, 8, 4) // 8x8 rays, 4 threads per ray testing different triangles
 fn main(@builtin(global_invocation_id) id: vec3<u32>) {
     let rayOrigin = uniforms.rayOrigin;
     let maxSteps = uniforms.maxSteps;
@@ -69,14 +69,17 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
     ));
 
     var rayPos = rayOrigin;
-    var stepsTaken = 0u;
     var hit = false;
 
+    let threadIndex = id.z;
+    var stepsTaken = 0u;
+    let numTriangles = 12u; // arrayLength(&indexBuffer) / 3;
+
     for (var i = 0u; i < maxSteps; i++) {
-        rayPos += rayDir * stepSize; // Move the ray forward
+        rayPos += rayDir * stepSize; 
         stepsTaken = i + 1u;
 
-        for (var j = 0u; j <  arrayLength(&indexBuffer) / 3 ; j++) {
+        for (var j = threadIndex; j < numTriangles; j += 4) {
             let i0 = indexBuffer[j * 3 + 0];
             let i1 = indexBuffer[j * 3 + 1];
             let i2 = indexBuffer[j * 3 + 2];

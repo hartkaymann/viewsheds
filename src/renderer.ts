@@ -34,9 +34,11 @@ export class Renderer {
     bind_group_compute: GPUBindGroup;
     bind_group_render: GPUBindGroup;
     bind_group_gizmo: GPUBindGroup;
+    bind_group_points: GPUBindGroup;
     bind_group_layout_compute: GPUBindGroupLayout;
     bind_group_layout_render: GPUBindGroupLayout;
     bind_group_layout_gizmo: GPUBindGroupLayout;
+    bind_group_layout_points: GPUBindGroupLayout;
 
     raySamples: Uint32Array = new Uint32Array([16, 32]);
 
@@ -50,6 +52,9 @@ export class Renderer {
     rayBuffer: GPUBuffer;
     gizmoVertexBuffer: GPUBuffer;
     gizmoUniformsBuffer: GPUBuffer;
+    renderModeBuffer: GPUBuffer;
+    quadtreeNodesBuffer: GPUBuffer;
+    pointToNodeBuffer: GPUBuffer;
 
     // Scene to render
     scene: Scene
@@ -67,14 +72,18 @@ export class Renderer {
         this.scene = scene;
     }
 
-    async init() {
+        async init() {
 
         this.adapter = <GPUAdapter>await navigator.gpu?.requestAdapter();
         if (!this.adapter) {
             console.error("WebGPU not supported");
             return;
         }
-        this.device = <GPUDevice>await this.adapter?.requestDevice();
+        const requiredLimits = {
+            maxStorageBufferBindingSize: this.adapter.limits.maxStorageBufferBindingSize
+        };
+
+        this.device = <GPUDevice>await this.adapter?.requestDevice({ requiredLimits });
 
         this.context = <GPUCanvasContext>this.canvas.getContext("webgpu");
         this.format = "bgra8unorm";
@@ -146,6 +155,27 @@ export class Renderer {
             usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
         });
 
+        this.renderModeBuffer = this.device.createBuffer({
+            size: 4, // 1 x u32
+            usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
+        });
+
+        const nodeBuffer = this.scene.tree.flatten();
+        const pointToNodeBuffer = this.scene.tree.mapPointsToNodes();
+
+        this.quadtreeNodesBuffer = this.device.createBuffer({
+            size: nodeBuffer.byteLength,
+            usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
+        });
+        this.device.queue.writeBuffer( this.quadtreeNodesBuffer, 0, nodeBuffer);
+
+        this.pointToNodeBuffer= this.device.createBuffer({
+            size: pointToNodeBuffer.byteLength,
+            usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
+        });
+        this.device.queue.writeBuffer( this.pointToNodeBuffer, 0, pointToNodeBuffer);
+
+
         this.bind_group_layout_compute = this.device.createBindGroupLayout({
             label: 'comp_layout',
             entries: [
@@ -209,6 +239,7 @@ export class Renderer {
         });
 
         this.bind_group_layout_gizmo = this.device.createBindGroupLayout({
+            label: 'gizmo_layout',
             entries: [
                 {
                     binding: 0,
@@ -216,6 +247,27 @@ export class Renderer {
                     buffer: { type: "uniform" },
                 },
             ],
+        });
+
+        this.bind_group_layout_points = this.device.createBindGroupLayout({
+            label: 'points_layout',
+            entries: [
+                {
+                    binding: 0,
+                    visibility: GPUShaderStage.VERTEX,
+                    buffer: { type: "uniform" },
+                },
+                {
+                    binding: 1,
+                    visibility: GPUShaderStage.VERTEX,
+                    buffer: { type: "read-only-storage" },
+                },
+                {
+                    binding: 2,
+                    visibility: GPUShaderStage.VERTEX,
+                    buffer: { type: "read-only-storage" },
+                }
+            ]
         });
 
         this.bind_group_compute = this.device.createBindGroup({
@@ -252,6 +304,24 @@ export class Renderer {
             ],
         });
 
+        this.bind_group_points = this.device.createBindGroup({
+            layout: this.bind_group_layout_points,
+            entries: [
+                {
+                    binding: 0,
+                    resource: { buffer: this.renderModeBuffer }
+                },
+                {
+                    binding: 1,
+                    resource: { buffer: this.quadtreeNodesBuffer }
+                },
+                {
+                    binding: 2,
+                    resource: { buffer: this.pointToNodeBuffer }
+                }
+            ]
+        });
+
         const pipeline_layout_compute = this.device.createPipelineLayout({
             label: 'compute-layout',
             bindGroupLayouts: [this.bind_group_layout_compute]
@@ -259,6 +329,10 @@ export class Renderer {
         const pipeline_layout_render = this.device.createPipelineLayout({
             label: 'render-layout',
             bindGroupLayouts: [this.bind_group_layout_render]
+        });
+        const pipeline_layout_points = this.device.createPipelineLayout({
+            label: 'points-layout',
+            bindGroupLayouts: [this.bind_group_layout_render, this.bind_group_layout_points]
         });
         const pipeline_layout_gizmo = this.device.createPipelineLayout({
             label: 'gizmo-layout',
@@ -278,7 +352,7 @@ export class Renderer {
         const pointShaderModule = this.device.createShaderModule({ code: points_src });
         this.pipelineRenderPoints = this.device.createRenderPipeline({
             label: 'render-pipeline',
-            layout: pipeline_layout_render,
+            layout: pipeline_layout_points,
             vertex: {
                 module: pointShaderModule,
                 entryPoint: 'main',
@@ -437,12 +511,22 @@ export class Renderer {
     }
 
     runComputePass() {
+        // TODO: reset ray buffer when doing this?
         const computeEncoder: GPUCommandEncoder = this.device.createCommandEncoder();
         const computePass: GPUComputePassEncoder = computeEncoder.beginComputePass();
         computePass.setPipeline(this.pipelineCompute);
         computePass.setBindGroup(0, this.bind_group_compute);
-        computePass.dispatchWorkgroups(this.raySamples[0], this.raySamples[1], 1);
+        const workgroupSizeX = 8;
+        const workgroupSizeY = 8;
+        const workgroupSizeZ = 4; // Parallelize triangle tests
+
+        const dispatchX = Math.ceil(this.raySamples[0] / workgroupSizeX);
+        const dispatchY = Math.ceil(this.raySamples[1] / workgroupSizeY);
+        const dispatchZ = 1;
+
+        computePass.dispatchWorkgroups(dispatchX, dispatchY, dispatchZ);
         computePass.end();
+
         this.device.queue.submit([computeEncoder.finish()]);
     }
 
@@ -462,8 +546,9 @@ export class Renderer {
         if (renderPoints) {
             renderPass.setPipeline(this.pipelineRenderPoints);
             renderPass.setBindGroup(0, this.bind_group_render);
-            renderPass.setVertexBuffer(0, this.pointBuffer); // Set the vertex buffer
-            renderPass.setVertexBuffer(1, this.colorBuffer); // Set the color buffer
+            renderPass.setBindGroup(1, this.bind_group_points);
+            renderPass.setVertexBuffer(0, this.pointBuffer);
+            renderPass.setVertexBuffer(1, this.colorBuffer);
             const pointsToDraw = this.pointBuffer.size / 16;
             renderPass.draw(pointsToDraw, 1);
         } else {
@@ -537,6 +622,7 @@ export class Renderer {
         const endTheta = parseFloat((<HTMLInputElement>document.getElementById("endTheta")).value);
         const startPhi = parseFloat((<HTMLInputElement>document.getElementById("startPhi")).value);
         const endPhi = parseFloat((<HTMLInputElement>document.getElementById("endPhi")).value);
+        const renderMode = parseFloat((<HTMLInputElement>document.getElementById("renderMode")).value);
 
         this.device.queue.writeBuffer(this.compUniformBuffer, 0, new Float32Array([
             originX, originY, originZ, stepSize, // 16
@@ -545,6 +631,8 @@ export class Renderer {
         this.device.queue.writeBuffer(this.compUniformBuffer, 32, new Uint32Array([
             this.raySamples[0], this.raySamples[1], maxSteps // 44
         ]));
+
+        this.device.queue.writeBuffer(this.renderModeBuffer, 0, new Uint32Array([renderMode]));
 
         if (oldSamples[0] != this.raySamples[0] || oldSamples[1] != this.raySamples[1]) {
             this.rayBuffer = this.device.createBuffer({
