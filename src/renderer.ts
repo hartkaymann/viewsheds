@@ -55,6 +55,7 @@ export class Renderer {
     renderModeBuffer: GPUBuffer;
     quadtreeNodesBuffer: GPUBuffer;
     pointToNodeBuffer: GPUBuffer;
+    nodeToTriangleBuffer: GPUBuffer;
 
     // Scene to render
     scene: Scene
@@ -72,7 +73,7 @@ export class Renderer {
         this.scene = scene;
     }
 
-        async init() {
+    async init() {
 
         this.adapter = <GPUAdapter>await navigator.gpu?.requestAdapter();
         if (!this.adapter) {
@@ -144,37 +145,46 @@ export class Renderer {
         });
 
         this.gizmoVertexBuffer = this.device.createBuffer({
+            label: 'buffer-gizmo-vertex',
             size: this.scene.gizmo.byteLength,
             usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
         });
         this.device.queue.writeBuffer(this.gizmoVertexBuffer, 0, this.scene.gizmo);
 
         this.gizmoUniformsBuffer = this.device.createBuffer({
-            label: 'uniforms-gizmo',
+            label: 'buffer-gizmo-uniforms',
             size: 192,
             usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
         });
 
         this.renderModeBuffer = this.device.createBuffer({
+            label: 'buffer-rendermode',
             size: 4, // 1 x u32
             usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
         });
 
         const nodeBuffer = this.scene.tree.flatten();
-        const pointToNodeBuffer = this.scene.tree.mapPointsToNodes();
-
+        const pointToNodeBufferData = this.scene.tree.mapPointsToNodes();
         this.quadtreeNodesBuffer = this.device.createBuffer({
+            label: 'buffer-quadtree',
             size: nodeBuffer.byteLength,
             usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
         });
-        this.device.queue.writeBuffer( this.quadtreeNodesBuffer, 0, nodeBuffer);
+        this.device.queue.writeBuffer(this.quadtreeNodesBuffer, 0, nodeBuffer);
 
-        this.pointToNodeBuffer= this.device.createBuffer({
-            size: pointToNodeBuffer.byteLength,
+        this.pointToNodeBuffer = this.device.createBuffer({
+            label: 'buffer-points-to-nodes',
+            size: pointToNodeBufferData.byteLength,
             usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
         });
-        this.device.queue.writeBuffer( this.pointToNodeBuffer, 0, pointToNodeBuffer);
+        this.device.queue.writeBuffer(this.pointToNodeBuffer, 0, pointToNodeBufferData);
 
+        this.nodeToTriangleBuffer = this.device.createBuffer({
+            label: 'buffer-nodes-to-triangles',
+            size: this.scene.nodeToTriangles.byteLength,
+            usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
+        });
+        this.device.queue.writeBuffer(this.nodeToTriangleBuffer, 0, this.scene.nodeToTriangles);
 
         this.bind_group_layout_compute = this.device.createBindGroupLayout({
             label: 'comp_layout',
@@ -192,18 +202,29 @@ export class Renderer {
                 {
                     binding: 2,
                     visibility: GPUShaderStage.COMPUTE,
-                    buffer: { type: "storage" }
+                    buffer: { type: "read-only-storage" }
                 },
                 {
                     binding: 3,
                     visibility: GPUShaderStage.COMPUTE,
-                    buffer: { type: "uniform" }
+                    buffer: { type: "read-only-storage" }
+                },
+                {
+                    binding: 4,
+                    visibility: GPUShaderStage.COMPUTE,
+                    buffer: { type: "storage" }
                 },
                 {
                     binding: 5,
                     visibility: GPUShaderStage.COMPUTE,
                     buffer: { type: "storage" }
                 },
+                {
+                    binding: 6,
+                    visibility: GPUShaderStage.COMPUTE,
+                    buffer: { type: "uniform" }
+                },
+
             ]
         });
 
@@ -276,9 +297,11 @@ export class Renderer {
             entries: [
                 { binding: 0, resource: { buffer: this.pointBuffer } },
                 { binding: 1, resource: { buffer: this.indicesBuffer } },
-                { binding: 2, resource: { buffer: this.visibilityBuffer } },
-                { binding: 3, resource: { buffer: this.compUniformBuffer } },
-                { binding: 5, resource: { buffer: this.rayBuffer } }
+                { binding: 2, resource: { buffer: this.quadtreeNodesBuffer } },
+                { binding: 3, resource: { buffer: this.nodeToTriangleBuffer } },
+                { binding: 4, resource: { buffer: this.visibilityBuffer } },
+                { binding: 5, resource: { buffer: this.rayBuffer } },
+                { binding: 6, resource: { buffer: this.compUniformBuffer } },
             ]
         });
 
@@ -616,8 +639,6 @@ export class Renderer {
         const originX = parseFloat((<HTMLInputElement>document.getElementById("originX")).value);
         const originY = parseFloat((<HTMLInputElement>document.getElementById("originY")).value);
         const originZ = parseFloat((<HTMLInputElement>document.getElementById("originZ")).value);
-        const maxSteps = parseFloat((<HTMLInputElement>document.getElementById("maxSteps")).value);
-        const stepSize = parseFloat((<HTMLInputElement>document.getElementById("stepSize")).value);
         const startTheta = parseFloat((<HTMLInputElement>document.getElementById("startTheta")).value);
         const endTheta = parseFloat((<HTMLInputElement>document.getElementById("endTheta")).value);
         const startPhi = parseFloat((<HTMLInputElement>document.getElementById("startPhi")).value);
@@ -625,11 +646,11 @@ export class Renderer {
         const renderMode = parseFloat((<HTMLInputElement>document.getElementById("renderMode")).value);
 
         this.device.queue.writeBuffer(this.compUniformBuffer, 0, new Float32Array([
-            originX, originY, originZ, stepSize, // 16
+            originX, originY, originZ, // 12
             startTheta, endTheta, startPhi, endPhi // 32
         ]));
         this.device.queue.writeBuffer(this.compUniformBuffer, 32, new Uint32Array([
-            this.raySamples[0], this.raySamples[1], maxSteps // 44
+            this.raySamples[0], this.raySamples[1],  // 40
         ]));
 
         this.device.queue.writeBuffer(this.renderModeBuffer, 0, new Uint32Array([renderMode]));
@@ -647,9 +668,11 @@ export class Renderer {
                 entries: [
                     { binding: 0, resource: { buffer: this.pointBuffer } },
                     { binding: 1, resource: { buffer: this.indicesBuffer } },
-                    { binding: 2, resource: { buffer: this.visibilityBuffer } },
-                    { binding: 3, resource: { buffer: this.compUniformBuffer } },
-                    { binding: 5, resource: { buffer: this.rayBuffer } }
+                    { binding: 2, resource: { buffer: this.quadtreeNodesBuffer } },
+                    { binding: 3, resource: { buffer: this.nodeToTriangleBuffer } },
+                    { binding: 4, resource: { buffer: this.visibilityBuffer } },
+                    { binding: 5, resource: { buffer: this.rayBuffer } },
+                    { binding: 6, resource: { buffer: this.compUniformBuffer } },
                 ]
             });
 

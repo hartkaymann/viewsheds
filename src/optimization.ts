@@ -1,50 +1,59 @@
-import { vec2 } from "gl-matrix";
-
-interface AABB {
-    x: number;
-    z: number;
-    width: number;
-    height: number
-}
-
-interface Triangle {
-    index: number;
-    center: vec2;
-}
+import { vec2, vec3 } from "gl-matrix";
+import { AABB, Bounds } from "./types/types";
 
 class QuadTreeNode {
     children: QuadTreeNode[] | null;
     bounds: AABB;
-    startIndex: number;
-    count: number;
     index: number;
+
+    startPointIndex: number;
+    pointCount: number;
+
+    startTriangleIndex: number;
+    triangleCount: number;
 
     constructor(bounds: AABB, depth: number) {
         this.children = null;
         this.bounds = bounds;
-        this.startIndex = -1;
-        this.count = 0;
+        this.startPointIndex = -1;
+        this.pointCount = 0;
+        this.startTriangleIndex = -1;
+        this.triangleCount = 0;
         this.index = -1;
 
         if (depth > 0) {
-            const halfW = bounds.width / 2;
-            const halfH = bounds.height / 2;
+            const halfSize = vec3.fromValues(bounds.size[0] / 2, 0, bounds.size[2] / 2);
 
             this.children = [
-                new QuadTreeNode({ x: bounds.x, z: bounds.z, width: halfW, height: halfH }, depth - 1),
-                new QuadTreeNode({ x: bounds.x + halfW, z: bounds.z, width: halfW, height: halfH }, depth - 1),
-                new QuadTreeNode({ x: bounds.x, z: bounds.z + halfH, width: halfW, height: halfH }, depth - 1),
-                new QuadTreeNode({ x: bounds.x + halfW, z: bounds.z + halfH, width: halfW, height: halfH }, depth - 1)
+                new QuadTreeNode({
+                    pos: vec3.clone(bounds.pos),
+                    size: vec3.clone(halfSize)
+                }, depth - 1),
+
+                new QuadTreeNode({
+                    pos: vec3.fromValues(bounds.pos[0] + halfSize[0], bounds.pos[1], bounds.pos[2]),
+                    size: vec3.clone(halfSize)
+                }, depth - 1),
+
+                new QuadTreeNode({
+                    pos: vec3.fromValues(bounds.pos[0], bounds.pos[1], bounds.pos[2] + halfSize[2]),
+                    size: vec3.clone(halfSize)
+                }, depth - 1),
+
+                new QuadTreeNode({
+                    pos: vec3.fromValues(bounds.pos[0] + halfSize[0], bounds.pos[1], bounds.pos[2] + halfSize[2]),
+                    size: vec3.clone(halfSize)
+                }, depth - 1),
             ]
         }
     }
 
     containsPoint(point: Float32Array): boolean {
         return (
-            point[0] >= this.bounds.x &&
-            point[0] < this.bounds.x + this.bounds.width &&
-            point[2] >= this.bounds.z &&
-            point[2] < this.bounds.z + this.bounds.height
+            point[0] >= this.bounds.pos[0] &&
+            point[0] < this.bounds.pos[0] + this.bounds.size[0] &&
+            point[2] >= this.bounds.pos[2] &&
+            point[2] < this.bounds.pos[2] + this.bounds.size[2]
         );
     }
 
@@ -67,6 +76,102 @@ class QuadTreeNode {
             }
         }
     }
+
+    assignPoints(sortedPoints: Float32Array, startIndex: number, endIndex: number): void {
+        if (this.children === null) { // Leaf
+            this.startPointIndex = startIndex;
+            this.pointCount = endIndex - startIndex;
+
+            let yMin = Infinity;
+            let yMax = -Infinity;
+
+            for (let i = startIndex; i < endIndex; i++) {
+                const y = sortedPoints[i * 4 + 1];
+                yMin = Math.min(yMin, y);
+                yMax = Math.max(yMax, y);
+            }
+
+            this.bounds.pos[1] = yMin;
+            this.bounds.size[1] = yMax - yMin;
+
+            return;
+        }
+
+        this.bounds.pos[1] = Infinity;
+        this.bounds.size[1] = -Infinity;
+
+        let currentStart = startIndex;
+        for (const child of this.children) {
+            let newEnd = currentStart;
+            while (newEnd < endIndex) {
+                const offset = newEnd * 4;
+                const point = sortedPoints.subarray(offset, offset + 4);
+
+                if (!child.containsPoint(point)) break;
+                newEnd++;
+            }
+
+            if (newEnd > currentStart) {
+                child.assignPoints(sortedPoints, currentStart, newEnd);
+
+                this.bounds.pos[1] = Math.min(this.bounds.pos[1], child.bounds.pos[1]);
+                this.bounds.size[1] = Math.max(
+                    this.bounds.pos[1] + this.bounds.size[1],
+                    child.bounds.pos[1] + child.bounds.size[1]
+                ) - this.bounds.pos[1];
+
+                currentStart = newEnd;
+            }
+        }
+    }
+
+    assignTriangles(
+        triangles: Uint32Array,
+        points: Float32Array,
+        globalTriangleIndexBuffer: number[],
+        relevantTriangles: Uint32Array | null = null
+    ): number[] {
+        let trianglesToProcess = relevantTriangles ?? triangles;
+
+        if (this.children === null) { // Leaf node
+            this.startTriangleIndex = globalTriangleIndexBuffer.length;
+            this.triangleCount = 0;
+
+            for (let i = 0; i < trianglesToProcess.length; i += 3) {
+                let v0 = trianglesToProcess[i], v1 = trianglesToProcess[i + 1], v2 = trianglesToProcess[i + 2];
+
+                let p0 = points.subarray(v0 * 4, v0 * 4 + 3);
+                let p1 = points.subarray(v1 * 4, v1 * 4 + 3);
+                let p2 = points.subarray(v2 * 4, v2 * 4 + 3);
+
+                if (this.containsPoint(p0) || this.containsPoint(p1) || this.containsPoint(p2)) {
+                    globalTriangleIndexBuffer.push(i / 3);
+                    this.triangleCount++;
+                }
+            }
+            return globalTriangleIndexBuffer;
+        }
+
+        let filteredTriangles: number[] = [];
+        for (let i = 0; i < trianglesToProcess.length; i += 3) {
+            let v0 = trianglesToProcess[i], v1 = trianglesToProcess[i + 1], v2 = trianglesToProcess[i + 2];
+
+            let p0 = points.subarray(v0 * 4, v0 * 4 + 3);
+            let p1 = points.subarray(v1 * 4, v1 * 4 + 3);
+            let p2 = points.subarray(v2 * 4, v2 * 4 + 3);
+
+            if (this.containsPoint(p0) || this.containsPoint(p1) || this.containsPoint(p2)) {
+                filteredTriangles.push(v0, v1, v2);
+            }
+        }
+
+        let filteredTriangleArray = new Uint32Array(filteredTriangles);
+        for (const child of this.children) {
+            child.assignTriangles(filteredTriangleArray, points, globalTriangleIndexBuffer, filteredTriangleArray);
+        }
+
+        return globalTriangleIndexBuffer;
+    }
 }
 
 export class QuadTree {
@@ -78,94 +183,66 @@ export class QuadTree {
 
     assignPoints(sortedPoints: Float32Array): void {
         const pointSize = 4; // (x, y, z, w)
-        this.assignPointsRecursive(this.root, sortedPoints, 0, sortedPoints.length / pointSize);
+        this.root.assignPoints(sortedPoints, 0, sortedPoints.length / pointSize);
     }
 
     assignIndices() {
         this.root.assignIndices({ value: 0 });
     }
 
-    private assignPointsRecursive(node: QuadTreeNode, sortedPoints: Float32Array, startIndex: number, endIndex: number): void {
-        if (node.children === null) { // Leaf
-            node.startIndex = startIndex;
-            node.count = endIndex - startIndex;
-            return;
-        }
-
-        node.startIndex = startIndex;
-        node.count = 0;
-
-        let currentStart = startIndex;
-        for (const child of node.children) {
-            let newEnd = currentStart;
-            while (newEnd < endIndex) {
-                const offset = newEnd * 4;
-                const point = sortedPoints.subarray(offset, offset + 4);
-
-                if (!child.containsPoint(point)) break;
-                newEnd++;
-            }
-
-            if (newEnd > currentStart) {
-                // Assign points to child
-                this.assignPointsRecursive(child, sortedPoints, currentStart, newEnd);
-
-                // Accumulate child counts
-                node.count += child.count;
-
-                currentStart = newEnd;
-            }
-        }
+    assignTriangles(triangles: Uint32Array, points: Float32Array, globalTriangleIndexBuffer: number[]): void {
+        this.root.assignTriangles(triangles, points, globalTriangleIndexBuffer);
     }
 
     flatten(): Uint32Array {
         const nodeList: QuadTreeNode[] = [];
+        const queue: QuadTreeNode[] = [this.root];
 
-        this.root.traverse((node) => {
+        while (queue.length > 0) {
+            const node = queue.shift()!;
             nodeList.push(node);
-        });
 
-        const nodeBuffer = new Uint32Array(nodeList.length * 5);
+            if (node.children) {
+                queue.push(...node.children);
+            }
+        }
+
+        const nodeBuffer = new Float32Array(nodeList.length * 10);
         nodeList.forEach((node, i) => {
-            nodeBuffer[i * 4] = node.bounds.x;
-            nodeBuffer[i * 4 + 1] = node.bounds.z;
-            nodeBuffer[i * 4 + 2] = node.bounds.width;
-            nodeBuffer[i * 4 + 2] = node.bounds.height;
-            nodeBuffer[i * 4 + 3] = node.index;
+            const offset = i * 8;
+            nodeBuffer.set(node.bounds.pos, offset);
+            nodeBuffer.set(node.bounds.size, offset + 3);
+            nodeBuffer[offset + 6] = node.startPointIndex;
+            nodeBuffer[offset + 7] = node.pointCount;
+            nodeBuffer[offset + 8] = node.startTriangleIndex;
+            nodeBuffer[offset + 9] = node.triangleCount;
         });
 
-        return nodeBuffer;
+        return new Uint32Array(nodeBuffer.buffer);
     }
 
     mapPointsToNodes = (): Uint32Array => {
-        const pointToNodeBuffer = new Uint32Array(this.root.count); // One index per point
+        const pointToNodeBuffer = new Uint32Array(this.root.pointCount); // One index per point
 
         this.root.traverse(node => {
             if (node.children === null) { // Only assign leaf nodes
-                for (let i = 0; i < node.count; i++) {
-                    pointToNodeBuffer[node.startIndex + i] = node.index; // Assign node ID
+                for (let i = 0; i < node.pointCount; i++) {
+                    pointToNodeBuffer[node.startPointIndex + i] = node.index; // Assign node ID
                 }
             }
         });
 
         return pointToNodeBuffer;
     };
-
-    static getPointsInNode(node: QuadTreeNode, sortedPoints: Float32Array): Float32Array {
-        const pointSize = 4;
-        return sortedPoints.subarray(node.startIndex * pointSize, (node.startIndex + node.count) * pointSize);
-    }
 }
 
 export class MortonSorter {
 
-    constructor() {
-
-    }
+    constructor() { }
 
     sort(
         points: Float32Array,
-        bounds: { minX: number, minZ: number, maxX: number, maxZ: number }): { sortedPoints: Float32Array, sortedIndices: Uint32Array } {
+        bounds: Bounds): { sortedPoints: Float32Array, sortedIndices: Uint32Array } {
 
         const pointSize = 4; // Each point has 4 components (x, y, z, w)
         const numPoints = points.length / pointSize;
@@ -198,10 +275,10 @@ export class MortonSorter {
 
     computeMortonCodeXZ(
         point: Float32Array,
-        bounds: { minX: number, minZ: number, maxX: number, maxZ: number }
+        bounds: Bounds
     ): number {
-        const normX = Math.floor(1024 * (point[0] - bounds.minX) / (bounds.maxX - bounds.minX)); // Normalize X
-        const normZ = Math.floor(1024 * (point[2] - bounds.minZ) / (bounds.maxZ - bounds.minZ)); // Normalize Z
+        const normX = Math.floor(1024 * (point[0] - bounds.min.x) / (bounds.max.x - bounds.min.x)); // Normalize X
+        const normZ = Math.floor(1024 * (point[2] - bounds.min.z) / (bounds.max.z - bounds.min.z)); // Normalize Z
         return this.morton2D(normX, normZ); // Interleave bits for XZ only
     }
 

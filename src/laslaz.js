@@ -212,14 +212,14 @@ export class LAZLoader {
 
         this.ww.onmessage = function(e) {
             if (o.nextCB !== null) {
-                console.log('dorr: >>', e.data);
+                //console.log('dorr: >>', e.data);
                 o.nextCB(e.data);
                 o.nextCB = null;
             }
         };
 
         this.dorr = function(req, cb) {
-            console.log('dorr: <<', req);
+            //console.log('dorr: <<', req);
             o.nextCB = cb;
             o.ww.postMessage(req);
         };
@@ -339,7 +339,6 @@ export class LASFile {
 export class LASDecoder {
     constructor(buffer, len, header) {
         console.log(header);
-        console.log("POINT FORMAT ID:", header.pointsFormatId);
         this.arrayb = buffer;
         this.decoder = pointFormatReaders[header.pointsFormatId];
         this.pointsCount = len;
