@@ -11,11 +11,12 @@ struct Ray {
     origin: vec3f,
     length: f32,
     direction: vec3f,
-    // Automatic padding 4 bytes here
+    // 4 byte padding
 };
 
 struct QuadTreeNode {
     position: vec3f,
+    childCount: u32,
     size: vec3f,
     startPointIndex: u32,
     pointCount: u32,
@@ -25,43 +26,37 @@ struct QuadTreeNode {
 
 @group(0) @binding(0) var<storage, read> positionsBuffer: array<vec4f>;
 @group(0) @binding(1) var<storage, read> indexBuffer: array<u32>;
-@group(0) @binding(2) var<storage, read> quadtree: array<QuadTreeNode>;
+@group(0) @binding(2) var<storage, read> nodeBuffer: array<QuadTreeNode>;
 @group(0) @binding(3) var<storage, read> triangleMapping: array<u32>;
 
 @group(0) @binding(4) var<storage, read_write> visibilityBuffer: array<atomic<u32>>;
 @group(0) @binding(5) var<storage, read_write> rayBuffer: array<Ray>;
+@group(0) @binding(6) var<storage, read_write> closestHitBuffer: array<atomic<u32>, 4>;
+@group(0) @binding(7) var<storage, read_write> rayNodeBuffer: array<u32>;
 
-@group(0) @binding(6) var<uniform> uniforms: compUniforms;
+@group(0) @binding(8) var<uniform> uniforms: compUniforms;
 
-
-fn rayIntersectsAABB(origin: vec3f, dir: vec3f, pos: vec3f, size: vec3f) -> bool {
+fn rayAABBIntersection(origin: vec3f, dir: vec3f, pos: vec3f, size: vec3f) -> f32 {
     let invDir = 1.0 / dir; // Compute inverse of ray direction
 
-    let t1 = (pos - origin) * invDir; // Intersection distances to min boundaries
-    let t2 = (pos + size - origin) * invDir; // Intersection distances to max boundaries
+    let t1 = (pos - origin) * invDir;          // Min boundary intersection
+    let t2 = (pos + size - origin) * invDir;   // Max boundary intersection
 
-    let tMin = max(max(min(t1.x, t2.x), min(t1.y, t2.y)), min(t1.z, t2.z));
-    let tMax = min(min(max(t1.x, t2.x), max(t1.y, t2.y)), max(t1.z, t2.z));
+    let tMin = max(max(min(t1.x, t2.x), min(t1.y, t2.y)), min(t1.z, t2.z)); // Entry point
+    let tMax = min(min(max(t1.x, t2.x), max(t1.y, t2.y)), max(t1.z, t2.z)); // Exit point
 
-    return tMax >= max(0.0, tMin); // True if ray enters before exiting
-}
+    // If no intersection, return -1.0
+    if (tMax < max(0.0, tMin)) {
+        return -1.0;
+    }
 
-fn getRayAABBEntryDistance(origin: vec3f, direction: vec3f, aabbMin: vec3f, aabbMax: vec3f) -> f32 {
-    let invDir = 1.0 / direction; // Compute inverse direction
-
-    let tMin = (aabbMin - origin) * invDir;
-    let tMax = (aabbMax - origin) * invDir;
-
-    let tEnter = max(max(min(tMin.x, tMax.x), min(tMin.y, tMax.y)), min(tMin.z, tMax.z));
-    let tExit = min(min(max(tMin.x, tMax.x), max(tMin.y, tMax.y)), max(tMin.z, tMax.z));
-
-    // If the ray starts inside the box, entry distance is 0
-    return select(tEnter, 0.0, tEnter < 0.0 || tEnter > tExit);
+    // If the ray starts inside the box, return 0.0
+    return select(tMin, 0.0, tMin < 0.0);
 }
 
 fn getEntryDistance(ray: Ray, nodeIndex: u32) -> f32 {
-    let node = quadtree[nodeIndex];
-    return getRayAABBEntryDistance(ray.origin, ray.direction, node.min, node.min + node.max);
+    let node = nodeBuffer[nodeIndex];
+    return rayAABBIntersection(ray.origin, ray.direction, node.position, node.position + node.size);
 }
 
 fn rayIntersectsTriangle(rayPos: vec3f, rayDir: vec3f, v0: vec3f, v1: vec3f, v2: vec3f) -> f32 {
@@ -108,120 +103,146 @@ fn markHit(index: u32) {
     atomicOr(&visibilityBuffer[wordIndex], (1u << bitIndex));
 }
 
-@compute @workgroup_size(8, 8, 4) // 8x8 rays, 4 threads per ray testing different points
+@compute @workgroup_size(8, 8, 1) // 8x8 rays
 fn main(@builtin(global_invocation_id) id: vec3<u32>) {
-    let rayOrigin = uniforms.rayOrigin;
-    let maxSteps = uniforms.maxSteps;
-    let stepSize = uniforms.stepSize;
+    let rayIndex = id.x + (id.y * uniforms.raySamples.x);
+    let baseOffset = rayIndex * 128;
 
     let gridSize = vec2f(f32(uniforms.raySamples.x), f32(uniforms.raySamples.y));
     let id2D = vec2f(f32(id.x) / gridSize.x, f32(id.y) / gridSize.y); 
     
     let theta = uniforms.startTheta + id2D.x * (uniforms.endTheta - uniforms.startTheta);
     let phi = acos(mix(cos(uniforms.startPhi), cos(uniforms.endPhi), id2D.y));
-
+    
+    let rayPos = uniforms.rayOrigin;
     let rayDir = normalize(vec3f(
         cos(theta) * sin(phi), // X
         cos(phi),              // Y
         sin(theta) * sin(phi)  // Z
     ));
-
-    var rayPos = rayOrigin;
-
-    let threadIndex = id.z;
+    let ray = Ray(rayPos, 0.0, rayDir);
 
     // Stack-based iterative traversal to collect leaf nodes
     var stackPointer: i32 = 0;
-    var stack: array<u32, 32>; // Enough space for worst-case depth
-
+    // Maximum stack size depends on depth of the tree:
+    // S = 2^(D+2)-2
+    var stack: array<u32, 256>; // For depth 6
     stack[0] = 0; // Start with the root node
-    var leafNodes: array<u32, 64>; // Buffer for intersected leaf nodes
+
     var leafCount: u32 = 0u;
 
     while (stackPointer >= 0) {
         let nodeIndex = stack[stackPointer];
-        stackPointer -= 1u; // Pop from stack
+        stackPointer -= 1; // Pop from stack
 
-        let node = quadtree[nodeIndex];
+        let node = nodeBuffer[nodeIndex];
         
         // If the ray doesn't intersect this node, skip it
-        if (!rayIntersectsAABB(ray.origin, ray.direction, node.position, node.size)) {
+        if (rayAABBIntersection(ray.origin, ray.direction, node.position, node.size) == -1.0) {
             continue;
         }
 
         // If it's a leaf node, add it to the list
-        if (node.pointCount > 0u) {
-            leafNodes[leafCount] = nodeIndex;
-            leafCount += 1u;
+        if (node.childCount == 0u) {
+            leafCount += 1;
+            rayNodeBuffer[baseOffset + leafCount] = nodeIndex;
             continue;
         }
 
         // If it's an internal node, push all 4 children onto the stack
         let firstChildIndex = 4u * nodeIndex + 1u;                                       
         for (var i = 0u; i < 4u; i++) {
-            stackPointer += 1u;
+            stackPointer += 1;
             stack[stackPointer] = firstChildIndex + i;
         }
+
+        rayNodeBuffer[baseOffset] = leafCount;
     }
 
-    // Simple selection sort for small lists
+    return;
+
+    // Selection Sort for Sorting Leaf Nodes by Entry Distance
     for (var i = 0u; i < leafCount - 1u; i++) {
         var minIndex = i;
+        var entryDistMin = getEntryDistance(ray, rayNodeBuffer[baseOffset + minIndex + 1]); // Store min entry distance
+
         for (var j = i + 1u; j < leafCount; j++) {
-            if (getEntryDistance(ray, leafNodes[j]) < getEntryDistance(ray, leafNodes[minIndex])) {
+            let nodeJ = rayNodeBuffer[baseOffset + j + 1];
+            let entryDistJ = getEntryDistance(ray, nodeJ);
+
+            if (entryDistJ < entryDistMin) {
                 minIndex = j;
+                entryDistMin = entryDistJ; // Update stored min distance
             }
         }
 
-        // Swap elements
-        let temp = leafNodes[i];
-        leafNodes[i] = leafNodes[minIndex];
-        leafNodes[minIndex] = temp;
+        if (minIndex != i) {
+            let temp = rayNodeBuffer[baseOffset + i + 1];
+            rayNodeBuffer[baseOffset + i + 1] = rayNodeBuffer[baseOffset + minIndex + 1];
+            rayNodeBuffer[baseOffset + minIndex + 1] = temp;
+        }
     }
 
+    // let threadIndex = id.z;
 
-    var hit = false;
-    var closestDistance = 99999.0;
-    var closestTriangle: vec3<u32> = vec3<u32>(0u, 0u, 0u); // Store indices of closest triangle
+    // var hit = false;
+    // var closestDistance = 99999.0;
+    // var closestTriangle: vec3<u32> = vec3<u32>(0u, 0u, 0u); // Store indices of closest triangle
 
-    for (var i = 0u; i < leafCount; i++) {
-        let nodeIndex = leafNodes[i];
-        let node = nodeBuffer[nodeIndex];
+    // for (var i = 0u; i < leafCount; i++) {
+    //     let nodeIndex = leafNodes[i];
+    //     let node = nodeBuffer[nodeIndex];
         
-        for (var j = 0u; j < node.triangleCount; j++) {
-            let triIndex = triangleMapping[node.startTriangleIndex + j];
+    //     for (var j = threadIndex; j < node.triangleCount; j += 4u) {
+    //         let triIndex = triangleMapping[node.startTriangleIndex + j];
 
-            i0 = indexBuffer[triIndex * 3 + 0];
-            i1 = indexBuffer[triIndex * 3 + 1];
-            i2 = indexBuffer[triIndex * 3 + 2];
+    //         let i0 = indexBuffer[triIndex * 3 + 0];
+    //         let i1 = indexBuffer[triIndex * 3 + 1];
+    //         let i2 = indexBuffer[triIndex * 3 + 2];
             
-            let v0 = positionsBuffer[i0].xyz;
-            let v1 = positionsBuffer[i1].xyz;
-            let v2 = positionsBuffer[i2].xyz;
+    //         let v0 = positionsBuffer[i0].xyz;
+    //         let v1 = positionsBuffer[i1].xyz;
+    //         let v2 = positionsBuffer[i2].xyz;
 
-            let t = rayIntersectsTriangle(rayPos, rayDir, v0, v1, v2);
+    //         let t = rayIntersectsTriangle(rayPos, rayDir, v0, v1, v2);
 
-            if (t > 0.0 && t < closestDistance) {
-                hit = true;
-                closestDistance = t;
-                closestTriangle = vec3<u32>(i0, i1, i2);
-            }
-        }
+    //         if (t > 0.0) {
+    //             let prevDist = bitcast<f32>(atomicLoad(&closestHitBuffer[0]));
 
-        if (hit) {
-            break;
-        }
-    }
+    //             if (t < prevDist) {
+    //                 atomicMin(&closestHitBuffer[0], bitcast<u32>(t));
+    //     	        atomicStore(&closestHitBuffer[1], i0);
+    //     	        atomicStore(&closestHitBuffer[2], i1);
+    //     	        atomicStore(&closestHitBuffer[3], i2);
+    //                 closestDistance = t;
+    //             }
 
-    if(closestDistance < 99999.0) {
-        markHit(closestTriangle.x);
-        markHit(closestTriangle.y);
-        markHit(closestTriangle.z);
-    }
+    //             hit = true;
+    //         }
+    //     }
 
-    // Store ray in the buffer
-    let linearIndex = id.x + (id.y * uniforms.raySamples.x);
-    if (linearIndex < arrayLength(&rayBuffer)) {
-        rayBuffer[linearIndex] = Ray(rayOrigin, closestDistance, rayDir);
-    }
+    //     if (hit) {
+    //         break;
+    //     }
+    // }
+
+    // workgroupBarrier(); 
+    // if (bitcast<f32>(atomicLoad(&closestHitBuffer[0])) == closestDistance) {
+    //     let tri0 = atomicLoad(&closestHitBuffer[1]);
+    //     let tri1 = atomicLoad(&closestHitBuffer[2]);
+    //     let tri2 = atomicLoad(&closestHitBuffer[3]);
+
+    //     if(closestDistance < 99999.0) {
+
+    //         markHit(tri0);
+    //         markHit(tri1);
+    //         markHit(tri2);
+    //     }
+
+    //     // Store ray in the buffer
+    //     let linearIndex = id.x + (id.y * uniforms.raySamples.x);
+    //     if (linearIndex < arrayLength(&rayBuffer)) {
+    //         rayBuffer[linearIndex] = Ray(ray.origin, closestDistance, ray.direction);
+    //     }
+    // }
 }

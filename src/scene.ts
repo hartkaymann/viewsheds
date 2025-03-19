@@ -204,8 +204,8 @@ export class Scene {
             pos: vec3.fromValues( bounds.min.x, bounds.min.y, bounds.min.z),
             size: vec3.fromValues(bounds.max.x - bounds.min.x, bounds.max.y - bounds.min.y, bounds.max.z - bounds.min.z)
         }, 6);
-        this.tree.assignPoints(this.points);
         this.tree.assignIndices();
+        this.tree.assignPoints(this.points);
 
         // Perform Delaunay Triangulation
         this.performTriangulation();
@@ -273,8 +273,6 @@ export class Scene {
 
         this.camera.setPosition(vec3.fromValues(centerX, centerY, centerZ + distance));
         this.camera.setTarget(vec3.fromValues(centerX, centerY, centerZ));
-
-        console.log(`Camera repositioned to focus on point cloud at (${centerX}, ${centerY}, ${centerZ})`);
     }
 
     async getBinary(url: string, progressCallback: (loaded: number, total: number) => void): Promise<ArrayBuffer> {

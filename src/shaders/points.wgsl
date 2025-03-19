@@ -23,11 +23,12 @@ struct VertexOutput {
 };
 
 fn randomColor(seed: u32) -> vec3f {
-  let x = f32(seed);
-  let r = fract(sin(x * 12.9898) * 43758.5453);
-  let g = fract(sin((x + 1.0) * 78.233) * 43758.5453);
-  let b = fract(sin((x + 2.0) * 45.164) * 43758.5453);
-  return vec3f(r, g, b);
+    let x = f32(seed) * 0.123456789;
+    let y = f32(seed) * 0.987654321;
+    let r = fract(sin(x * 89.42 + y * 4.23) * 43758.5453);
+    let g = fract(sin(x * 23.14 + y * 17.73) * 23421.631);
+    let b = fract(sin(x * 11.73 + y * 7.97) * 14667.918);
+    return vec3f(r, g, b);
 }
 
 @vertex

@@ -3,6 +3,7 @@ import wireframe_src from "./shaders/wireframe.wgsl"
 import points_src from "./shaders/points.wgsl"
 import rays_src from "./shaders/rays.wgsl"
 import gizmo_src from "./shaders/gizmo.wgsl"
+import quadtree_vis_src from "./shaders/quadtree-visualize.wgsl"
 
 import { Scene } from "./scene";
 import { mat3, mat4, vec3 } from "gl-matrix";
@@ -29,16 +30,19 @@ export class Renderer {
     pipelineRenderWireframe: GPURenderPipeline;
     pipelineRenderRays: GPURenderPipeline;
     pipelineRenderGizmo: GPURenderPipeline;
+    pipelineRenderQuadtree: GPURenderPipeline;
 
     // Bind groups
     bind_group_compute: GPUBindGroup;
     bind_group_render: GPUBindGroup;
     bind_group_gizmo: GPUBindGroup;
     bind_group_points: GPUBindGroup;
+    bind_group_quadtree: GPUBindGroup;
     bind_group_layout_compute: GPUBindGroupLayout;
     bind_group_layout_render: GPUBindGroupLayout;
     bind_group_layout_gizmo: GPUBindGroupLayout;
     bind_group_layout_points: GPUBindGroupLayout;
+    bind_group_layout_quadtree: GPUBindGroupLayout;
 
     raySamples: Uint32Array = new Uint32Array([16, 32]);
 
@@ -56,6 +60,8 @@ export class Renderer {
     quadtreeNodesBuffer: GPUBuffer;
     pointToNodeBuffer: GPUBuffer;
     nodeToTriangleBuffer: GPUBuffer;
+    closestHitBuffer: GPUBuffer;
+    rayToNodeBuffer: GPUBuffer;
 
     // Scene to render
     scene: Scene
@@ -74,17 +80,7 @@ export class Renderer {
     }
 
     async init() {
-
-        this.adapter = <GPUAdapter>await navigator.gpu?.requestAdapter();
-        if (!this.adapter) {
-            console.error("WebGPU not supported");
-            return;
-        }
-        const requiredLimits = {
-            maxStorageBufferBindingSize: this.adapter.limits.maxStorageBufferBindingSize
-        };
-
-        this.device = <GPUDevice>await this.adapter?.requestDevice({ requiredLimits });
+        this.device = await this.createDevice();
 
         this.context = <GPUCanvasContext>this.canvas.getContext("webgpu");
         this.format = "bgra8unorm";
@@ -186,6 +182,19 @@ export class Renderer {
         });
         this.device.queue.writeBuffer(this.nodeToTriangleBuffer, 0, this.scene.nodeToTriangles);
 
+        this.closestHitBuffer = this.device.createBuffer({
+            size: 16,
+            usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC,
+        });
+        const maxFloatData = new Uint32Array([0x7F7FFFFF, 0, 0, 0]); // IEEE-754 bit pattern for f32::MAX
+        this.device.queue.writeBuffer(this.closestHitBuffer, 0, maxFloatData);
+
+        this.rayToNodeBuffer = this.device.createBuffer({
+            size: this.raySamples[0] * this.raySamples[1] * 128 * 4, // Ray sample times the max nodes passed per ray (plus one so the first value is the count)
+            usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC,
+            mappedAtCreation: false,
+        });
+
         this.bind_group_layout_compute = this.device.createBindGroupLayout({
             label: 'comp_layout',
             entries: [
@@ -221,6 +230,16 @@ export class Renderer {
                 },
                 {
                     binding: 6,
+                    visibility: GPUShaderStage.COMPUTE,
+                    buffer: { type: "storage" }
+                },
+                {
+                    binding: 7,
+                    visibility: GPUShaderStage.COMPUTE,
+                    buffer: { type: "storage" }
+                },
+                {
+                    binding: 8,
                     visibility: GPUShaderStage.COMPUTE,
                     buffer: { type: "uniform" }
                 },
@@ -291,6 +310,22 @@ export class Renderer {
             ]
         });
 
+        this.bind_group_layout_quadtree = this.device.createBindGroupLayout({
+            label: 'quadtree_layout',
+            entries: [
+                {
+                    binding: 0,
+                    visibility: GPUShaderStage.VERTEX,
+                    buffer: { type: "uniform" }
+                },
+                {
+                    binding: 1,
+                    visibility: GPUShaderStage.VERTEX,
+                    buffer: { type: "read-only-storage" },
+                },
+            ]
+        });
+
         this.bind_group_compute = this.device.createBindGroup({
             label: 'comp_bind_group',
             layout: this.bind_group_layout_compute,
@@ -301,7 +336,9 @@ export class Renderer {
                 { binding: 3, resource: { buffer: this.nodeToTriangleBuffer } },
                 { binding: 4, resource: { buffer: this.visibilityBuffer } },
                 { binding: 5, resource: { buffer: this.rayBuffer } },
-                { binding: 6, resource: { buffer: this.compUniformBuffer } },
+                { binding: 6, resource: { buffer: this.closestHitBuffer } },
+                { binding: 7, resource: { buffer: this.rayToNodeBuffer } },
+                { binding: 8, resource: { buffer: this.compUniformBuffer } },
             ]
         });
 
@@ -345,6 +382,21 @@ export class Renderer {
             ]
         });
 
+        this.bind_group_quadtree = this.device.createBindGroup({
+            layout: this.bind_group_layout_quadtree,
+            entries: [
+                {
+                    binding: 0,
+                    resource: { buffer: this.vsUniformBuffer }
+                },
+                {
+                    binding: 1,
+                    resource: { buffer: this.quadtreeNodesBuffer }
+                },
+            ]
+        });
+
+
         const pipeline_layout_compute = this.device.createPipelineLayout({
             label: 'compute-layout',
             bindGroupLayouts: [this.bind_group_layout_compute]
@@ -360,6 +412,10 @@ export class Renderer {
         const pipeline_layout_gizmo = this.device.createPipelineLayout({
             label: 'gizmo-layout',
             bindGroupLayouts: [this.bind_group_layout_gizmo]
+        });
+        const pipeline_layout_quadtree = this.device.createPipelineLayout({
+            label: 'quadtree-layout',
+            bindGroupLayouts: [this.bind_group_layout_quadtree]
         });
 
         const computeShaderModule = this.device.createShaderModule({ code: compute_src });
@@ -494,6 +550,26 @@ export class Renderer {
             }
         });
 
+        const quadtreeShaderModule = this.device.createShaderModule({ code: quadtree_vis_src });
+        this.pipelineRenderQuadtree = this.device.createRenderPipeline({
+            label: 'render-pipeline-quadtree',
+            layout: pipeline_layout_quadtree,
+            vertex: {
+                module: quadtreeShaderModule,
+                entryPoint: 'main',
+            },
+            fragment: {
+                module: quadtreeShaderModule,
+                entryPoint: 'main_fs',
+                targets: [
+                    { format: 'bgra8unorm' }
+                ]
+            },
+            primitive: {
+                topology: 'line-list',
+            }
+        });
+
         this.renderPassDescriptor = {
             colorAttachments: [
                 {
@@ -512,6 +588,45 @@ export class Renderer {
 
         this.runComputePass();
         this.render();
+    }
+
+    async createDevice() {
+        this.adapter = await navigator.gpu?.requestAdapter();
+        if (!this.adapter) {
+            console.error("WebGPU: No GPU adapter found!");
+            return null;
+        }
+
+        const requiredLimits = {
+            maxStorageBufferBindingSize: this.adapter.limits.maxStorageBufferBindingSize
+        };
+
+        this.device = await this.adapter.requestDevice({ requiredLimits });
+
+        // Listen for device loss
+        this.device.lost.then((info) => {
+            console.warn(`WebGPU Device Lost: ${info.message}`);
+            this.handleDeviceLost();
+        });
+
+        return this.device;
+    }
+
+    async handleDeviceLost() {
+        console.log("Attempting to recover WebGPU device...");
+
+        // Wait a moment before retrying (avoids potential GPU crashes)
+        await new Promise(resolve => setTimeout(resolve, 100));
+
+        // Reinitialize everything
+        await this.createDevice();
+        if (!this.device) {
+            console.error("Failed to recover WebGPU device.");
+            return;
+        }
+
+        console.log("WebGPU device restored.");
+        // Recreate GPU resources here (buffers, pipelines, etc.)
     }
 
     render = () => {
@@ -584,6 +699,11 @@ export class Renderer {
         renderPass.setPipeline(this.pipelineRenderRays);
         renderPass.setBindGroup(0, this.bind_group_render);
         renderPass.draw(2 * this.raySamples[0] * this.raySamples[1], 1);
+
+        // Render quadtree
+        renderPass.setPipeline(this.pipelineRenderQuadtree);
+        renderPass.setBindGroup(0, this.bind_group_quadtree);
+        renderPass.draw(24, Math.pow(4, this.scene.tree.depth));
         renderPass.end();
 
         const gizmoPassDescriptor: GPURenderPassDescriptor = {
@@ -672,7 +792,9 @@ export class Renderer {
                     { binding: 3, resource: { buffer: this.nodeToTriangleBuffer } },
                     { binding: 4, resource: { buffer: this.visibilityBuffer } },
                     { binding: 5, resource: { buffer: this.rayBuffer } },
-                    { binding: 6, resource: { buffer: this.compUniformBuffer } },
+                    { binding: 6, resource: { buffer: this.closestHitBuffer } },
+                    { binding: 7, resource: { buffer: this.rayToNodeBuffer } },
+                    { binding: 8, resource: { buffer: this.compUniformBuffer } },
                 ]
             });
 
