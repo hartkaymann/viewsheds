@@ -29,12 +29,13 @@ struct QuadTreeNode {
 @group(0) @binding(2) var<storage, read> nodeBuffer: array<QuadTreeNode>;
 @group(0) @binding(3) var<storage, read> triangleMapping: array<u32>;
 
-@group(0) @binding(4) var<storage, read_write> visibilityBuffer: array<atomic<u32>>;
+@group(0) @binding(4) var<storage, read_write> pointVisibilityBuffer: array<atomic<u32>>;
 @group(0) @binding(5) var<storage, read_write> rayBuffer: array<Ray>;
 @group(0) @binding(6) var<storage, read_write> closestHitBuffer: array<atomic<u32>, 4>;
 @group(0) @binding(7) var<storage, read_write> rayNodeBuffer: array<u32>;
+@group(0) @binding(8) var<storage, read_write> nodeVisibilityBuffer: array<atomic<u32>>;
 
-@group(0) @binding(8) var<uniform> uniforms: compUniforms;
+@group(0) @binding(9) var<uniform> uniforms: compUniforms;
 
 fn rayAABBIntersection(origin: vec3f, dir: vec3f, pos: vec3f, size: vec3f) -> f32 {
     let invDir = 1.0 / dir; // Compute inverse of ray direction
@@ -97,16 +98,25 @@ fn rayIntersectsTriangle(rayPos: vec3f, rayDir: vec3f, v0: vec3f, v1: vec3f, v2:
     return -1.0;
 }
 
-fn markHit(index: u32) {
+fn markPointHit(index: u32) {
     let wordIndex = index / 32;
     let bitIndex = index % 32;
-    atomicOr(&visibilityBuffer[wordIndex], (1u << bitIndex));
+    atomicOr(&pointVisibilityBuffer[wordIndex], (1u << bitIndex));
+}
+
+fn markNodeHit(index: u32) {
+    let wordIndex = index / 32;
+    let bitIndex = index % 32;
+    atomicOr(&nodeVisibilityBuffer[wordIndex], (1u << bitIndex));
 }
 
 @compute @workgroup_size(8, 8, 1) // 8x8 rays
 fn main(@builtin(global_invocation_id) id: vec3<u32>) {
+    let depth = 6u;
     let rayIndex = id.x + (id.y * uniforms.raySamples.x);
     let baseOffset = rayIndex * 128;
+    let leafOffset = (1u << (2u * depth)) / 3u; // bit-shift instead of pow
+
 
     let gridSize = vec2f(f32(uniforms.raySamples.x), f32(uniforms.raySamples.y));
     let id2D = vec2f(f32(id.x) / gridSize.x, f32(id.y) / gridSize.y); 
@@ -146,6 +156,7 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
         if (node.childCount == 0u) {
             leafCount += 1;
             rayNodeBuffer[baseOffset + leafCount] = nodeIndex;
+            markNodeHit(nodeIndex - leafOffset);
             continue;
         }
 
@@ -159,6 +170,11 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
         rayNodeBuffer[baseOffset] = leafCount;
     }
 
+    // Store ray in the buffer
+    let linearIndex = id.x + (id.y * uniforms.raySamples.x);
+    if (linearIndex < arrayLength(&rayBuffer)) {
+        rayBuffer[linearIndex] = Ray(ray.origin, 100.0, ray.direction);
+    }
     return;
 
     // Selection Sort for Sorting Leaf Nodes by Entry Distance
@@ -234,15 +250,10 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
 
     //     if(closestDistance < 99999.0) {
 
-    //         markHit(tri0);
-    //         markHit(tri1);
-    //         markHit(tri2);
+    //         markPointHit(tri0);
+    //         markPointHit(tri1);
+    //         markPointHit(tri2);
     //     }
 
-    //     // Store ray in the buffer
-    //     let linearIndex = id.x + (id.y * uniforms.raySamples.x);
-    //     if (linearIndex < arrayLength(&rayBuffer)) {
-    //         rayBuffer[linearIndex] = Ray(ray.origin, closestDistance, ray.direction);
-    //     }
-    // }
+
 }

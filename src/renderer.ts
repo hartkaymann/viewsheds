@@ -21,8 +21,8 @@ export class Renderer {
     renderPassDescriptor: GPURenderPassDescriptor;
 
     //Assets
-    color_buffer: GPUTexture;
-    color_buffer_view: GPUTextureView;
+    depth_buffer: GPUTexture;
+    depth_buffer_view: GPUTextureView;
 
     // Pipeline objects
     pipelineCompute: GPUComputePipeline;
@@ -52,7 +52,8 @@ export class Renderer {
     pointBuffer: GPUBuffer;
     colorBuffer: GPUBuffer;
     indicesBuffer: GPUBuffer;
-    visibilityBuffer: GPUBuffer;
+    pointVisibilityBuffer: GPUBuffer;
+    nodeVisibilityBuffer: GPUBuffer;
     rayBuffer: GPUBuffer;
     gizmoVertexBuffer: GPUBuffer;
     gizmoUniformsBuffer: GPUBuffer;
@@ -115,12 +116,20 @@ export class Renderer {
         });
         this.device.queue.writeBuffer(this.indicesBuffer, 0, this.scene.indices, 0, indicesBufferSize / Uint32Array.BYTES_PER_ELEMENT);
 
-        const visibilityBufferSize = Math.ceil(this.scene.points.length / 3 / 32) * Uint32Array.BYTES_PER_ELEMENT;
-        this.visibilityBuffer = this.device.createBuffer({
-            label: 'buffer-visibility',
-            size: visibilityBufferSize,
+        const pointVisibilityBufferSize = Math.ceil(this.scene.points.length / 3 / 32) * Uint32Array.BYTES_PER_ELEMENT;
+        this.pointVisibilityBuffer = this.device.createBuffer({
+            label: 'buffer-visibility-points',
+            size: pointVisibilityBufferSize,
             usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST | GPUBufferUsage.VERTEX,
         });
+
+        const nodeVisibilityBufferSize = (Math.pow(4, this.scene.tree.depth) / 32) * Uint32Array.BYTES_PER_ELEMENT;
+        this.nodeVisibilityBuffer = this.device.createBuffer({
+            label: 'buffer-visibility-nodes',
+            size: nodeVisibilityBufferSize,
+            usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST | GPUBufferUsage.VERTEX,
+        });
+
 
         this.compUniformBuffer = this.device.createBuffer({
             label: 'uniform-comp',
@@ -241,6 +250,11 @@ export class Renderer {
                 {
                     binding: 8,
                     visibility: GPUShaderStage.COMPUTE,
+                    buffer: { type: "storage" }
+                },
+                {
+                    binding: 9,
+                    visibility: GPUShaderStage.COMPUTE,
                     buffer: { type: "uniform" }
                 },
 
@@ -323,6 +337,11 @@ export class Renderer {
                     visibility: GPUShaderStage.VERTEX,
                     buffer: { type: "read-only-storage" },
                 },
+                {
+                    binding: 2,
+                    visibility: GPUShaderStage.VERTEX,
+                    buffer: { type: "read-only-storage" }
+                },
             ]
         });
 
@@ -334,11 +353,12 @@ export class Renderer {
                 { binding: 1, resource: { buffer: this.indicesBuffer } },
                 { binding: 2, resource: { buffer: this.quadtreeNodesBuffer } },
                 { binding: 3, resource: { buffer: this.nodeToTriangleBuffer } },
-                { binding: 4, resource: { buffer: this.visibilityBuffer } },
+                { binding: 4, resource: { buffer: this.pointVisibilityBuffer } },
                 { binding: 5, resource: { buffer: this.rayBuffer } },
                 { binding: 6, resource: { buffer: this.closestHitBuffer } },
                 { binding: 7, resource: { buffer: this.rayToNodeBuffer } },
-                { binding: 8, resource: { buffer: this.compUniformBuffer } },
+                { binding: 8, resource: { buffer: this.nodeVisibilityBuffer } },
+                { binding: 9, resource: { buffer: this.compUniformBuffer } },
             ]
         });
 
@@ -348,7 +368,7 @@ export class Renderer {
             entries: [
                 { binding: 0, resource: { buffer: this.pointBuffer } },
                 { binding: 1, resource: { buffer: this.indicesBuffer } }, // Check if this is needed, as the vertex/indices buffer is not used in the point and ray shader
-                { binding: 2, resource: { buffer: this.visibilityBuffer } },
+                { binding: 2, resource: { buffer: this.pointVisibilityBuffer } },
                 { binding: 4, resource: { buffer: this.vsUniformBuffer } },
                 { binding: 5, resource: { buffer: this.rayBuffer } }
             ]
@@ -367,32 +387,18 @@ export class Renderer {
         this.bind_group_points = this.device.createBindGroup({
             layout: this.bind_group_layout_points,
             entries: [
-                {
-                    binding: 0,
-                    resource: { buffer: this.renderModeBuffer }
-                },
-                {
-                    binding: 1,
-                    resource: { buffer: this.quadtreeNodesBuffer }
-                },
-                {
-                    binding: 2,
-                    resource: { buffer: this.pointToNodeBuffer }
-                }
+                { binding: 0, resource: { buffer: this.renderModeBuffer } },
+                { binding: 1, resource: { buffer: this.quadtreeNodesBuffer } },
+                { binding: 2, resource: { buffer: this.pointToNodeBuffer } }
             ]
         });
 
         this.bind_group_quadtree = this.device.createBindGroup({
             layout: this.bind_group_layout_quadtree,
             entries: [
-                {
-                    binding: 0,
-                    resource: { buffer: this.vsUniformBuffer }
-                },
-                {
-                    binding: 1,
-                    resource: { buffer: this.quadtreeNodesBuffer }
-                },
+                { binding: 0, resource: { buffer: this.vsUniformBuffer } },
+                { binding: 1, resource: { buffer: this.quadtreeNodesBuffer } },
+                { binding: 2, resource: { buffer: this.nodeVisibilityBuffer } }
             ]
         });
 
@@ -481,7 +487,12 @@ export class Renderer {
             },
             primitive: {
                 topology: 'point-list'
-            }
+            },
+            depthStencil: {
+                format: "depth24plus",
+                depthWriteEnabled: true,
+                depthCompare: "less",
+            },
         });
 
         const wireframeShaderModule = this.device.createShaderModule({ code: wireframe_src });
@@ -501,7 +512,12 @@ export class Renderer {
             },
             primitive: {
                 topology: 'line-strip',
-            }
+            },
+            depthStencil: {
+                format: "depth24plus",
+                depthWriteEnabled: true,
+                depthCompare: "less",
+            },
         });
 
         const rayShaderModule = this.device.createShaderModule({ code: rays_src });
@@ -521,7 +537,12 @@ export class Renderer {
             },
             primitive: {
                 topology: 'line-list'
-            }
+            },
+            depthStencil: {
+                format: "depth24plus",
+                depthWriteEnabled: true,
+                depthCompare: "less",
+            },
         });
 
         const gizmoShaderModule = this.device.createShaderModule({ code: gizmo_src });
@@ -567,8 +588,21 @@ export class Renderer {
             },
             primitive: {
                 topology: 'line-list',
-            }
+            },
+            depthStencil: {
+                format: "depth24plus",
+                depthWriteEnabled: true,
+                depthCompare: "less",
+            },
         });
+
+        this.depth_buffer = this.device.createTexture({
+            size: [this.context.canvas.width, this.context.canvas.height, 1],
+            format: "depth24plus",
+            usage: GPUTextureUsage.RENDER_ATTACHMENT,
+        });
+        this.depth_buffer_view = this.depth_buffer.createView();
+
 
         this.renderPassDescriptor = {
             colorAttachments: [
@@ -579,8 +613,15 @@ export class Renderer {
                     storeOp: 'store',
                     clearValue: { r: 0.12, g: 0.12, b: 0.13, a: 1.0 }
                 }
-            ]
+            ],
+            depthStencilAttachment: {
+                view: this.depth_buffer_view,
+                depthLoadOp: "clear",
+                depthStoreOp: "store",
+                depthClearValue: 1.0,
+            },
         }
+
 
         const updateButton = document.getElementById("updateValues");
         updateButton.addEventListener("click", this.updateValues.bind(this));
@@ -598,8 +639,10 @@ export class Renderer {
         }
 
         const requiredLimits = {
-            maxStorageBufferBindingSize: this.adapter.limits.maxStorageBufferBindingSize
+            maxStorageBufferBindingSize: this.adapter.limits.maxStorageBufferBindingSize,
+            maxStorageBuffersPerShaderStage: this.adapter.limits.maxStorageBuffersPerShaderStage
         };
+
 
         this.device = await this.adapter.requestDevice({ requiredLimits });
 
@@ -678,9 +721,9 @@ export class Renderer {
         const commandEncoder: GPUCommandEncoder = this.device.createCommandEncoder();
         const renderPass: GPURenderPassEncoder = commandEncoder.beginRenderPass(this.renderPassDescriptor);
 
+        // Render points
         const renderPointsCheckbox = <HTMLInputElement>document.getElementById("renderPoints");
         const renderPoints = renderPointsCheckbox.checked;
-
         if (renderPoints) {
             renderPass.setPipeline(this.pipelineRenderPoints);
             renderPass.setBindGroup(0, this.bind_group_render);
@@ -701,9 +744,14 @@ export class Renderer {
         renderPass.draw(2 * this.raySamples[0] * this.raySamples[1], 1);
 
         // Render quadtree
-        renderPass.setPipeline(this.pipelineRenderQuadtree);
-        renderPass.setBindGroup(0, this.bind_group_quadtree);
-        renderPass.draw(24, Math.pow(4, this.scene.tree.depth));
+        const showNodesCheckbox = <HTMLInputElement>document.getElementById("showNodes");
+        const showNodes = showNodesCheckbox.checked;
+        if (showNodes) {
+            renderPass.setPipeline(this.pipelineRenderQuadtree);
+            renderPass.setBindGroup(0, this.bind_group_quadtree);
+            renderPass.draw(24, Math.pow(4, this.scene.tree.depth));
+        }
+
         renderPass.end();
 
         const gizmoPassDescriptor: GPURenderPassDescriptor = {
@@ -790,11 +838,12 @@ export class Renderer {
                     { binding: 1, resource: { buffer: this.indicesBuffer } },
                     { binding: 2, resource: { buffer: this.quadtreeNodesBuffer } },
                     { binding: 3, resource: { buffer: this.nodeToTriangleBuffer } },
-                    { binding: 4, resource: { buffer: this.visibilityBuffer } },
+                    { binding: 4, resource: { buffer: this.pointVisibilityBuffer } },
                     { binding: 5, resource: { buffer: this.rayBuffer } },
                     { binding: 6, resource: { buffer: this.closestHitBuffer } },
                     { binding: 7, resource: { buffer: this.rayToNodeBuffer } },
-                    { binding: 8, resource: { buffer: this.compUniformBuffer } },
+                    { binding: 8, resource: { buffer: this.nodeVisibilityBuffer } },
+                    { binding: 9, resource: { buffer: this.compUniformBuffer } },
                 ]
             });
 
@@ -804,7 +853,7 @@ export class Renderer {
                 entries: [
                     { binding: 0, resource: { buffer: this.pointBuffer } },
                     { binding: 1, resource: { buffer: this.indicesBuffer } },
-                    { binding: 2, resource: { buffer: this.visibilityBuffer } },
+                    { binding: 2, resource: { buffer: this.pointVisibilityBuffer } },
                     { binding: 4, resource: { buffer: this.vsUniformBuffer } },
                     { binding: 5, resource: { buffer: this.rayBuffer } }
                 ]

@@ -5,7 +5,7 @@ struct Uniforms {
 };
 
 
-@group(0) @binding(2) var<storage, read> visibilityBuffer: array<u32>;
+@group(0) @binding(2) var<storage, read> pointVisibilityBuffer: array<u32>;
 @group(0) @binding(4) var<uniform> uniforms: Uniforms;
 @group(1) @binding(0) var<uniform> renderMode: u32;  
 @group(1) @binding(1) var<storage, read> nodeBuffer: array<vec4<u32>>;
@@ -14,7 +14,7 @@ struct Uniforms {
 fn getBoolean(index: u32) -> bool {
   let wordIndex = index / 32;
   let bitIndex = index % 32;
-  return (visibilityBuffer[wordIndex] & (1u << bitIndex)) != 0;
+  return (pointVisibilityBuffer[wordIndex] & (1u << bitIndex)) != 0;
 }
 
 struct VertexOutput {

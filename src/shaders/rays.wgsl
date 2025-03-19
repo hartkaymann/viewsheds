@@ -28,7 +28,7 @@ fn main_vs(@builtin(vertex_index) vertexIndex: u32) -> VertexOutput {
 
     if (rayIndex < arrayLength(&rayBuffer)) {
         let ray = rayBuffer[rayIndex];
-        let rayPos = select(ray.origin, ray.origin + ray.direction * ray.length, isStartPoint);
+        let rayPos = select(ray.origin, ray.origin + ray.direction * max(1.0, ray.length), isStartPoint);
         output.position = uniforms.projectionMatrix * uniforms.viewMatrix * vec4f(rayPos, 1.0);
         output.color = vec4f(0.0, 1.0, 0.5, 1.0);
     } else {
