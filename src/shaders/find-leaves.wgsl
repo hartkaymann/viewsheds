@@ -24,20 +24,18 @@ struct QuadTreeNode {
     triangleCount: u32,
 };
 
-@group(0) @binding(0) var<storage, read> positionsBuffer: array<vec4f>;
-@group(0) @binding(1) var<storage, read> indexBuffer: array<u32>;
-@group(0) @binding(2) var<storage, read> nodeBuffer: array<QuadTreeNode>;
-@group(0) @binding(3) var<storage, read> triangleMapping: array<u32>;
+//@group(0) @binding(0) var<storage, read> positionsBuffer: array<vec4f>;
+//@group(0) @binding(1) var<storage, read> indexBuffer: array<u32>;
+// @group(0) @binding(6) var<storage, read_write> closestHitBuffer: array<atomic<u32>, 4>;
+// @group(0) @binding(3) var<storage, read> triangleMapping: array<u32>;
+// @group(0) @binding(4) var<storage, read_write> pointVisibilityBuffer: array<atomic<u32>>;
+@group(0) @binding(0) var<storage, read> nodeBuffer: array<QuadTreeNode>;
+@group(0) @binding(1) var<storage, read_write> rayBuffer: array<Ray>;
+@group(0) @binding(2) var<storage, read_write> rayNodeBuffer: array<u32>;
+@group(0) @binding(3) var<storage, read_write> nodeVisibilityBuffer: array<atomic<u32>>;
+@group(0) @binding(4) var<uniform> uniforms: compUniforms;
 
-@group(0) @binding(4) var<storage, read_write> pointVisibilityBuffer: array<atomic<u32>>;
-@group(0) @binding(5) var<storage, read_write> rayBuffer: array<Ray>;
-@group(0) @binding(6) var<storage, read_write> closestHitBuffer: array<atomic<u32>, 4>;
-@group(0) @binding(7) var<storage, read_write> rayNodeBuffer: array<u32>;
-@group(0) @binding(8) var<storage, read_write> nodeVisibilityBuffer: array<atomic<u32>>;
-
-@group(0) @binding(9) var<uniform> uniforms: compUniforms;
-
-fn rayAABBIntersection(origin: vec3f, dir: vec3f, pos: vec3f, size: vec3f) -> f32 {
+fn rayAABBIntersection(origin: vec3f, dir: vec3f, pos: vec3f, size: vec3f) -> bool {
     let invDir = 1.0 / dir; // Compute inverse of ray direction
 
     let t1 = (pos - origin) * invDir;          // Min boundary intersection
@@ -46,18 +44,8 @@ fn rayAABBIntersection(origin: vec3f, dir: vec3f, pos: vec3f, size: vec3f) -> f3
     let tMin = max(max(min(t1.x, t2.x), min(t1.y, t2.y)), min(t1.z, t2.z)); // Entry point
     let tMax = min(min(max(t1.x, t2.x), max(t1.y, t2.y)), max(t1.z, t2.z)); // Exit point
 
-    // If no intersection, return -1.0
-    if (tMax < max(0.0, tMin)) {
-        return -1.0;
-    }
-
-    // If the ray starts inside the box, return 0.0
-    return select(tMin, 0.0, tMin < 0.0);
-}
-
-fn getEntryDistance(ray: Ray, nodeIndex: u32) -> f32 {
-    let node = nodeBuffer[nodeIndex];
-    return rayAABBIntersection(ray.origin, ray.direction, node.position, node.position + node.size);
+    // Return true if the ray intersects the box, otherwise false
+    return !(tMax < max(0.0, tMin));
 }
 
 fn rayIntersectsTriangle(rayPos: vec3f, rayDir: vec3f, v0: vec3f, v1: vec3f, v2: vec3f) -> f32 {
@@ -98,11 +86,11 @@ fn rayIntersectsTriangle(rayPos: vec3f, rayDir: vec3f, v0: vec3f, v1: vec3f, v2:
     return -1.0;
 }
 
-fn markPointHit(index: u32) {
-    let wordIndex = index / 32;
-    let bitIndex = index % 32;
-    atomicOr(&pointVisibilityBuffer[wordIndex], (1u << bitIndex));
-}
+// fn markPointHit(index: u32) {
+//     let wordIndex = index / 32;
+//     let bitIndex = index % 32;
+//     atomicOr(&pointVisibilityBuffer[wordIndex], (1u << bitIndex));
+// }
 
 fn markNodeHit(index: u32) {
     let wordIndex = index / 32;
@@ -116,7 +104,6 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
     let rayIndex = id.x + (id.y * uniforms.raySamples.x);
     let baseOffset = rayIndex * 128;
     let leafOffset = (1u << (2u * depth)) / 3u; // bit-shift instead of pow
-
 
     let gridSize = vec2f(f32(uniforms.raySamples.x), f32(uniforms.raySamples.y));
     let id2D = vec2f(f32(id.x) / gridSize.x, f32(id.y) / gridSize.y); 
@@ -148,7 +135,7 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
         let node = nodeBuffer[nodeIndex];
         
         // If the ray doesn't intersect this node, skip it
-        if (rayAABBIntersection(ray.origin, ray.direction, node.position, node.size) == -1.0) {
+        if (!rayAABBIntersection(ray.origin, ray.direction, node.position, node.size)) {
             continue;
         }
 
@@ -174,29 +161,6 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
     let linearIndex = id.x + (id.y * uniforms.raySamples.x);
     if (linearIndex < arrayLength(&rayBuffer)) {
         rayBuffer[linearIndex] = Ray(ray.origin, 100.0, ray.direction);
-    }
-    return;
-
-    // Selection Sort for Sorting Leaf Nodes by Entry Distance
-    for (var i = 0u; i < leafCount - 1u; i++) {
-        var minIndex = i;
-        var entryDistMin = getEntryDistance(ray, rayNodeBuffer[baseOffset + minIndex + 1]); // Store min entry distance
-
-        for (var j = i + 1u; j < leafCount; j++) {
-            let nodeJ = rayNodeBuffer[baseOffset + j + 1];
-            let entryDistJ = getEntryDistance(ray, nodeJ);
-
-            if (entryDistJ < entryDistMin) {
-                minIndex = j;
-                entryDistMin = entryDistJ; // Update stored min distance
-            }
-        }
-
-        if (minIndex != i) {
-            let temp = rayNodeBuffer[baseOffset + i + 1];
-            rayNodeBuffer[baseOffset + i + 1] = rayNodeBuffer[baseOffset + minIndex + 1];
-            rayNodeBuffer[baseOffset + minIndex + 1] = temp;
-        }
     }
 
     // let threadIndex = id.z;

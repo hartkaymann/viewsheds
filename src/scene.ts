@@ -197,15 +197,29 @@ export class Scene {
 
     processPointCloud() {
         // Find accurate bounds
+        let start = performance.now();
         const bounds = this.bounds ?? (this.bounds = this.calculateBounds(this.points));
+        let end = performance.now();
+        console.log(`calculateBounds(): ${(end - start).toFixed(3)} ms`);
 
         // Create Quadtree
+        start = performance.now();
         this.tree = new QuadTree({
             pos: vec3.fromValues( bounds.min.x, bounds.min.y, bounds.min.z),
             size: vec3.fromValues(bounds.max.x - bounds.min.x, bounds.max.y - bounds.min.y, bounds.max.z - bounds.min.z)
         }, 6);
+        end = performance.now();
+        console.log(`new QuaTree(): ${(end - start).toFixed(3)} ms`);
+
+        start = performance.now();
         this.tree.assignIndices();
+        end = performance.now();
+        console.log(`assignIndices(): ${(end - start).toFixed(3)} ms`);
+
+        start = performance.now();
         this.tree.assignPoints(this.points);
+        end = performance.now();
+        console.log(`assignPoints(): ${(end - start).toFixed(3)} ms`);
 
         // Perform Delaunay Triangulation
         this.performTriangulation();
@@ -232,20 +246,30 @@ export class Scene {
     }
 
     performTriangulation() {
+        let start = performance.now();
         const coords = new Float64Array(this.points.length / 2);
         for (let i = 0; i < this.points.length / 4; i++) {
             coords[i * 2] = this.points[i * 4];
             coords[i * 2 + 1] = this.points[i * 4 + 2];
         }
+        let end = performance.now();
+        console.log(`createCoords(): ${(end - start).toFixed(3)} ms`);
+
+        start = performance.now();
         const delaunay = new Delaunator(coords);
         this.indices = new Uint32Array(delaunay.triangles);
         this.triangleCount = delaunay.triangles.length / 3;
+        end = performance.now();
+        console.log(`new Delaunator(): ${(end - start).toFixed(3)} ms`);
+
 
         // Map nodes to triangles
+        start = performance.now();
         let globalTriangleIndexBuffer: number[] = [];
         this.tree.assignTriangles(this.indices, this.points,globalTriangleIndexBuffer);
         this.nodeToTriangles = new Uint32Array(globalTriangleIndexBuffer);
-
+        end = performance.now();
+        console.log(`assignTriangles(): ${(end - start).toFixed(3)} ms`);
     }
 
     reorderColors(colors: Float32Array, sortedIndices: Uint32Array): Float32Array {

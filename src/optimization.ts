@@ -48,13 +48,13 @@ class QuadTreeNode {
         }
     }
 
-    containsPoint(point: Float32Array): boolean {
+    containsPoint(px: number, pz: number): boolean {
         const EPSILON = 1e-6;
         return (
-            point[0] >= this.bounds.pos[0] - EPSILON &&
-            point[0] <= this.bounds.pos[0] + this.bounds.size[0] + EPSILON &&
-            point[2] >= this.bounds.pos[2] - EPSILON &&
-            point[2] <= this.bounds.pos[2] + this.bounds.size[2] + EPSILON
+            px >= this.bounds.pos[0] - EPSILON &&
+            px <= this.bounds.pos[0] + this.bounds.size[0] + EPSILON &&
+            pz >= this.bounds.pos[2] - EPSILON &&
+            pz <= this.bounds.pos[2] + this.bounds.size[2] + EPSILON
         );
     }
 
@@ -115,9 +115,9 @@ class QuadTreeNode {
 
             while (newEnd < endIndex) {
                 const offset = newEnd * 4;
-                const point = sortedPoints.subarray(offset, offset + 4);
+                let px = sortedPoints[offset], pz = sortedPoints[offset + 2];
 
-                if (child.containsPoint(point)) {
+                if (child.containsPoint(px, pz)) {
                     newEnd++;
                 } else {
                     break;
@@ -144,7 +144,7 @@ class QuadTreeNode {
         points: Float32Array,
         globalTriangleIndexBuffer: number[],
         relevantTriangles: Uint32Array | null = null
-    ): number[] {
+    ) {
         let trianglesToProcess = relevantTriangles ?? triangles;
 
         if (this.children === null) { // Leaf node
@@ -154,11 +154,12 @@ class QuadTreeNode {
             for (let i = 0; i < trianglesToProcess.length; i += 3) {
                 let v0 = trianglesToProcess[i], v1 = trianglesToProcess[i + 1], v2 = trianglesToProcess[i + 2];
 
-                let p0 = points.subarray(v0 * 4, v0 * 4 + 3);
-                let p1 = points.subarray(v1 * 4, v1 * 4 + 3);
-                let p2 = points.subarray(v2 * 4, v2 * 4 + 3);
+                let base0 = v0 * 4, base1 = v1 * 4, base2 = v2 * 4;
+                let p0x = points[base0], p0z = points[base0 + 2];
+                let p1x = points[base1], p1z = points[base1 + 2];
+                let p2x = points[base2], p2z = points[base2 + 2];
 
-                if (this.containsPoint(p0) || this.containsPoint(p1) || this.containsPoint(p2)) {
+                if (this.containsPoint(p0x, p0z) || this.containsPoint(p1x, p1z) || this.containsPoint(p2x, p2z)) {
                     globalTriangleIndexBuffer.push(i / 3);
                     this.triangleCount++;
                 }
@@ -170,11 +171,12 @@ class QuadTreeNode {
         for (let i = 0; i < trianglesToProcess.length; i += 3) {
             let v0 = trianglesToProcess[i], v1 = trianglesToProcess[i + 1], v2 = trianglesToProcess[i + 2];
 
-            let p0 = points.subarray(v0 * 4, v0 * 4 + 3);
-            let p1 = points.subarray(v1 * 4, v1 * 4 + 3);
-            let p2 = points.subarray(v2 * 4, v2 * 4 + 3);
+            let base0 = v0 * 4, base1 = v1 * 4, base2 = v2 * 4;
+            let p0x = points[base0], p0z = points[base0 + 2];
+            let p1x = points[base1], p1z = points[base1 + 2];
+            let p2x = points[base2], p2z = points[base2 + 2];
 
-            if (this.containsPoint(p0) || this.containsPoint(p1) || this.containsPoint(p2)) {
+            if (this.containsPoint(p0x, p0z) || this.containsPoint(p1x, p1z) || this.containsPoint(p2x, p2z)) {
                 filteredTriangles.push(v0, v1, v2);
             }
         }
@@ -183,8 +185,6 @@ class QuadTreeNode {
         for (const child of this.children) {
             child.assignTriangles(filteredTriangleArray, points, globalTriangleIndexBuffer, filteredTriangleArray);
         }
-
-        return globalTriangleIndexBuffer;
     }
 }
 

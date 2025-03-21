@@ -1,4 +1,6 @@
-import compute_src from "./shaders/compute.wgsl"
+import find_leaves_src from "./shaders/find-leaves.wgsl"
+import bitonic_sort_src from "./shaders/bitonic-sort.wgsl"
+
 import wireframe_src from "./shaders/wireframe.wgsl"
 import points_src from "./shaders/points.wgsl"
 import rays_src from "./shaders/rays.wgsl"
@@ -25,7 +27,9 @@ export class Renderer {
     depth_buffer_view: GPUTextureView;
 
     // Pipeline objects
-    pipelineCompute: GPUComputePipeline;
+    pipelineFindLeaves: GPUComputePipeline;
+    pipelineBitonicSort: GPUComputePipeline;
+
     pipelineRenderPoints: GPURenderPipeline;
     pipelineRenderWireframe: GPURenderPipeline;
     pipelineRenderRays: GPURenderPipeline;
@@ -33,12 +37,17 @@ export class Renderer {
     pipelineRenderQuadtree: GPURenderPipeline;
 
     // Bind groups
-    bind_group_compute: GPUBindGroup;
+    bind_group_find: GPUBindGroup;
+    bind_group_sort: GPUBindGroup;
+
     bind_group_render: GPUBindGroup;
     bind_group_gizmo: GPUBindGroup;
     bind_group_points: GPUBindGroup;
     bind_group_quadtree: GPUBindGroup;
-    bind_group_layout_compute: GPUBindGroupLayout;
+
+    bind_group_layout_find: GPUBindGroupLayout;
+    bind_group_layout_sort: GPUBindGroupLayout;
+
     bind_group_layout_render: GPUBindGroupLayout;
     bind_group_layout_gizmo: GPUBindGroupLayout;
     bind_group_layout_points: GPUBindGroupLayout;
@@ -130,7 +139,6 @@ export class Renderer {
             usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST | GPUBufferUsage.VERTEX,
         });
 
-
         this.compUniformBuffer = this.device.createBuffer({
             label: 'uniform-comp',
             size: 48,
@@ -204,8 +212,8 @@ export class Renderer {
             mappedAtCreation: false,
         });
 
-        this.bind_group_layout_compute = this.device.createBindGroupLayout({
-            label: 'comp_layout',
+        this.bind_group_layout_find = this.device.createBindGroupLayout({
+            label: 'layout-find-leaves',
             entries: [
                 {
                     binding: 0,
@@ -215,45 +223,47 @@ export class Renderer {
                 {
                     binding: 1,
                     visibility: GPUShaderStage.COMPUTE,
-                    buffer: { type: "read-only-storage" }
+                    buffer: { type: "storage" }
                 },
                 {
                     binding: 2,
                     visibility: GPUShaderStage.COMPUTE,
-                    buffer: { type: "read-only-storage" }
+                    buffer: { type: "storage" }
                 },
                 {
                     binding: 3,
                     visibility: GPUShaderStage.COMPUTE,
-                    buffer: { type: "read-only-storage" }
+                    buffer: { type: "storage" }
                 },
                 {
                     binding: 4,
                     visibility: GPUShaderStage.COMPUTE,
-                    buffer: { type: "storage" }
+                    buffer: { type: "uniform" }
+                },
+
+            ]
+        });
+
+        this.bind_group_layout_sort = this.device.createBindGroupLayout({
+            label: 'layout-sort',
+            entries: [
+                {
+                    binding: 0,
+                    visibility: GPUShaderStage.COMPUTE,
+                    buffer: { type: "read-only-storage" }
                 },
                 {
-                    binding: 5,
+                    binding: 1,
                     visibility: GPUShaderStage.COMPUTE,
                     buffer: { type: "storage" }
                 },
                 {
-                    binding: 6,
+                    binding: 2,
                     visibility: GPUShaderStage.COMPUTE,
                     buffer: { type: "storage" }
                 },
                 {
-                    binding: 7,
-                    visibility: GPUShaderStage.COMPUTE,
-                    buffer: { type: "storage" }
-                },
-                {
-                    binding: 8,
-                    visibility: GPUShaderStage.COMPUTE,
-                    buffer: { type: "storage" }
-                },
-                {
-                    binding: 9,
+                    binding: 3,
                     visibility: GPUShaderStage.COMPUTE,
                     buffer: { type: "uniform" }
                 },
@@ -345,22 +355,29 @@ export class Renderer {
             ]
         });
 
-        this.bind_group_compute = this.device.createBindGroup({
-            label: 'comp_bind_group',
-            layout: this.bind_group_layout_compute,
+        this.bind_group_find = this.device.createBindGroup({
+            label: 'bind-group-find',
+            layout: this.bind_group_layout_find,
             entries: [
-                { binding: 0, resource: { buffer: this.pointBuffer } },
-                { binding: 1, resource: { buffer: this.indicesBuffer } },
-                { binding: 2, resource: { buffer: this.quadtreeNodesBuffer } },
-                { binding: 3, resource: { buffer: this.nodeToTriangleBuffer } },
-                { binding: 4, resource: { buffer: this.pointVisibilityBuffer } },
-                { binding: 5, resource: { buffer: this.rayBuffer } },
-                { binding: 6, resource: { buffer: this.closestHitBuffer } },
-                { binding: 7, resource: { buffer: this.rayToNodeBuffer } },
-                { binding: 8, resource: { buffer: this.nodeVisibilityBuffer } },
-                { binding: 9, resource: { buffer: this.compUniformBuffer } },
+                { binding: 0, resource: { buffer: this.quadtreeNodesBuffer } },
+                { binding: 1, resource: { buffer: this.rayBuffer } },
+                { binding: 2, resource: { buffer: this.rayToNodeBuffer } },
+                { binding: 3, resource: { buffer: this.nodeVisibilityBuffer } },
+                { binding: 4, resource: { buffer: this.compUniformBuffer } },
             ]
         });
+
+        this.bind_group_sort = this.device.createBindGroup({
+            label: 'bind-group-sort',
+            layout: this.bind_group_layout_sort,
+            entries: [
+                { binding: 0, resource: { buffer: this.quadtreeNodesBuffer } },
+                { binding: 1, resource: { buffer: this.rayBuffer } },
+                { binding: 2, resource: { buffer: this.rayToNodeBuffer } },
+                { binding: 3, resource: { buffer: this.compUniformBuffer } },
+            ]
+        });
+
 
         this.bind_group_render = this.device.createBindGroup({
             label: 'render_bind_group',
@@ -403,9 +420,13 @@ export class Renderer {
         });
 
 
-        const pipeline_layout_compute = this.device.createPipelineLayout({
+        const pipeline_layout_find = this.device.createPipelineLayout({
             label: 'compute-layout',
-            bindGroupLayouts: [this.bind_group_layout_compute]
+            bindGroupLayouts: [this.bind_group_layout_find]
+        });
+        const pipeline_layout_sort = this.device.createPipelineLayout({
+            label: 'compute-layout',
+            bindGroupLayouts: [this.bind_group_layout_sort]
         });
         const pipeline_layout_render = this.device.createPipelineLayout({
             label: 'render-layout',
@@ -424,13 +445,19 @@ export class Renderer {
             bindGroupLayouts: [this.bind_group_layout_quadtree]
         });
 
-        const computeShaderModule = this.device.createShaderModule({ code: compute_src });
-        this.pipelineCompute = this.device.createComputePipeline({
-            label: 'compute-pipeline',
-            layout: pipeline_layout_compute,
-            compute: {
-                module: computeShaderModule,
-                entryPoint: 'main'
+        this.pipelineFindLeaves = this.device.createComputePipeline({
+            layout: pipeline_layout_find,
+            compute: { 
+                module: this.device.createShaderModule({ code: find_leaves_src }), 
+                entryPoint: "main" 
+            }
+        });
+
+        this.pipelineBitonicSort = this.device.createComputePipeline({
+            layout: pipeline_layout_sort,
+            compute: { 
+                module: this.device.createShaderModule({ code: bitonic_sort_src }), 
+                entryPoint: "main",
             }
         });
 
@@ -692,23 +719,46 @@ export class Renderer {
     }
 
     runComputePass() {
-        // TODO: reset ray buffer when doing this?
+        // Clear buffers
+        const resetBuffer = (buffer: GPUBuffer) =>
+            this.device.queue.writeBuffer(buffer, 0, new Uint32Array(buffer.size / 4));
+        resetBuffer(this.rayToNodeBuffer);
+        resetBuffer(this.nodeVisibilityBuffer);
+
+
         const computeEncoder: GPUCommandEncoder = this.device.createCommandEncoder();
         const computePass: GPUComputePassEncoder = computeEncoder.beginComputePass();
-        computePass.setPipeline(this.pipelineCompute);
-        computePass.setBindGroup(0, this.bind_group_compute);
+
+        this.computeFindLeaves(computePass);
+        this.computebitonicSort(computePass);
+
+        
+        computePass.end();
+        this.device.queue.submit([computeEncoder.finish()]);
+    }
+
+    computeFindLeaves(encoder: GPUComputePassEncoder) {
         const workgroupSizeX = 8;
         const workgroupSizeY = 8;
-        const workgroupSizeZ = 4; // Parallelize triangle tests
-
+        
         const dispatchX = Math.ceil(this.raySamples[0] / workgroupSizeX);
         const dispatchY = Math.ceil(this.raySamples[1] / workgroupSizeY);
         const dispatchZ = 1;
+        
+        encoder.setPipeline(this.pipelineFindLeaves);
+        encoder.setBindGroup(0, this.bind_group_find);
+        encoder.dispatchWorkgroups(dispatchX, dispatchY, dispatchZ);
+    }
 
-        computePass.dispatchWorkgroups(dispatchX, dispatchY, dispatchZ);
-        computePass.end();
+    computebitonicSort(encoder: GPUComputePassEncoder) {
+        const workgroupSizeX = 32; // Threads per ray (sorting 4 elements per thread)
+        const workgroupSizeY = 4;
 
-        this.device.queue.submit([computeEncoder.finish()]);
+        const totalWorkgroups = this.raySamples[0] * Math.ceil(this.raySamples[1]); // One workgroup per ray
+
+        encoder.setPipeline(this.pipelineBitonicSort);
+        encoder.setBindGroup(0, this.bind_group_sort);
+        encoder.dispatchWorkgroups(totalWorkgroups);
     }
 
     runRenderPass() {
@@ -830,20 +880,26 @@ export class Renderer {
                 usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST | GPUBufferUsage.VERTEX,
             });
             // Update the bind group with the new ray buffer
-            this.bind_group_compute = this.device.createBindGroup({
-                label: 'comp_bind_group',
-                layout: this.bind_group_layout_compute,
+            this.bind_group_find = this.device.createBindGroup({
+                label: 'bind-group-find',
+                layout: this.bind_group_layout_find,
                 entries: [
-                    { binding: 0, resource: { buffer: this.pointBuffer } },
-                    { binding: 1, resource: { buffer: this.indicesBuffer } },
-                    { binding: 2, resource: { buffer: this.quadtreeNodesBuffer } },
-                    { binding: 3, resource: { buffer: this.nodeToTriangleBuffer } },
-                    { binding: 4, resource: { buffer: this.pointVisibilityBuffer } },
-                    { binding: 5, resource: { buffer: this.rayBuffer } },
-                    { binding: 6, resource: { buffer: this.closestHitBuffer } },
-                    { binding: 7, resource: { buffer: this.rayToNodeBuffer } },
-                    { binding: 8, resource: { buffer: this.nodeVisibilityBuffer } },
-                    { binding: 9, resource: { buffer: this.compUniformBuffer } },
+                    { binding: 0, resource: { buffer: this.quadtreeNodesBuffer } },
+                    { binding: 1, resource: { buffer: this.rayBuffer } },
+                    { binding: 2, resource: { buffer: this.rayToNodeBuffer } },
+                    { binding: 3, resource: { buffer: this.nodeVisibilityBuffer } },
+                    { binding: 4, resource: { buffer: this.compUniformBuffer } },
+                ]
+            });
+    
+            this.bind_group_sort = this.device.createBindGroup({
+                label: 'bind-group-sort',
+                layout: this.bind_group_layout_sort,
+                entries: [
+                    { binding: 0, resource: { buffer: this.quadtreeNodesBuffer } },
+                    { binding: 1, resource: { buffer: this.rayBuffer } },
+                    { binding: 2, resource: { buffer: this.rayToNodeBuffer } },
+                    { binding: 3, resource: { buffer: this.compUniformBuffer } },
                 ]
             });
 
