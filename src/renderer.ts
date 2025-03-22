@@ -9,6 +9,7 @@ import nodes_src from "./shaders/nodes.wgsl"
 
 import { Scene } from "./scene";
 import { mat3, mat4, vec3 } from "gl-matrix";
+import { WorkgroupLayout, WorkgroupLimits, WorkgroupStrategy } from "./types/types"
 
 
 export class Renderer {
@@ -53,7 +54,7 @@ export class Renderer {
     bind_group_layout_points: GPUBindGroupLayout;
     bind_group_layout_nodes: GPUBindGroupLayout;
 
-    raySamples: Uint32Array = new Uint32Array([16, 32]);
+    raySamples: Uint32Array = new Uint32Array([8, 8]);
 
     // Buffers
     compUniformBuffer: GPUBuffer;
@@ -74,6 +75,10 @@ export class Renderer {
     rayToNodeBuffer: GPUBuffer;
     debugDistancesBuffer: GPUBuffer;
     rayNodeCountsBuffer: GPUBuffer;
+
+    // Others
+    workgroupLayoutGrid: WorkgroupLayout;
+    workgroupLayoutSort: WorkgroupLayout;
 
     // Scene to render
     scene: Scene
@@ -457,15 +462,6 @@ export class Renderer {
             ]
         });
 
-
-        const pipeline_layout_find = this.device.createPipelineLayout({
-            label: 'pipeline-layout-find',
-            bindGroupLayouts: [this.bind_group_layout_find]
-        });
-        const pipeline_layout_sort = this.device.createPipelineLayout({
-            label: 'pipeline-layout-sort',
-            bindGroupLayouts: [this.bind_group_layout_sort]
-        });
         const pipeline_layout_render = this.device.createPipelineLayout({
             label: 'pipeline-layout-render',
             bindGroupLayouts: [this.bind_group_layout_render]
@@ -483,28 +479,7 @@ export class Renderer {
             bindGroupLayouts: [this.bind_group_layout_nodes]
         });
 
-        this.pipelineFindLeaves = this.device.createComputePipeline({
-            layout: pipeline_layout_find,
-            compute: {
-                module: this.device.createShaderModule({ code: find_leaves_src }),
-                entryPoint: "main"
-            }
-        });
-
-        this.pipelineBitonicSort = this.device.createComputePipeline({
-            layout: pipeline_layout_sort,
-            compute: {
-                module: this.device.createShaderModule({
-                    code: this.applyShaderConstants(bitonic_sort_src, {
-                        WORKGROUP_SIZE: 128,
-                    })
-                }),
-                entryPoint: "main",
-                constants: {
-                    BLOCK_SIZE: 128
-                }
-            }
-        });
+        this.setupComputePipelines();
 
         const pointShaderModule = this.device.createShaderModule({ code: points_src });
         this.pipelineRenderPoints = this.device.createRenderPipeline({
@@ -650,6 +625,10 @@ export class Renderer {
             vertex: {
                 module: nodesShaderModule,
                 entryPoint: 'main',
+                constants: {
+                    TREE_DEPTH: this.scene.tree.depth,
+                    BLOCK_SIZE: 128,
+                }
             },
             fragment: {
                 module: nodesShaderModule,
@@ -714,6 +693,94 @@ export class Renderer {
 
         this.runComputePass();
         this.render();
+    }
+
+    private setupComputePipelines(): void {
+        // === Workgroup Limits ===
+        const limits: WorkgroupLimits = {
+            maxTotalThreads: this.device.limits.maxComputeInvocationsPerWorkgroup,
+            maxSizeX: this.device.limits.maxComputeWorkgroupSizeX,
+            maxSizeY: this.device.limits.maxComputeWorkgroupSizeY,
+            maxSizeZ: this.device.limits.maxComputeWorkgroupSizeZ,
+        };
+
+        // === Pipeline Layouts ===
+        const pipelineLayoutFind = this.device.createPipelineLayout({
+            label: 'pipeline-layout-find',
+            bindGroupLayouts: [this.bind_group_layout_find],
+        });
+
+        const pipelineLayoutSort = this.device.createPipelineLayout({
+            label: 'pipeline-layout-sort',
+            bindGroupLayouts: [this.bind_group_layout_sort],
+        });
+
+        // === Workgroup Strategy: 2D tiling for rays ===
+        const rayGridSize: [number, number, number] = [this.raySamples[0], this.raySamples[1], 1];
+        const tile2DGridPerRay: WorkgroupStrategy = ({ totalThreads, problemSize }) => {
+            const maxX = Math.floor(Math.sqrt(totalThreads));
+            const x = Math.min(problemSize[0], maxX);
+            const y = Math.min(problemSize[1], Math.floor(totalThreads / x));
+        
+            return {
+                workgroupSize: [x, y, 1],
+                // No need to override dispatchSize — let it default to problemSize / workgroupSize
+            };
+        };
+        this.workgroupLayoutGrid = this.computeWorkgroupLayout(rayGridSize, limits, tile2DGridPerRay);
+
+        // === Pipeline: findLeaves ===
+        const stackSize = 2 * this.scene.tree.depth + 1;
+
+        this.pipelineFindLeaves = this.device.createComputePipeline({
+            layout: pipelineLayoutFind,
+            compute: {
+                module: this.device.createShaderModule({
+                    code: this.applyShaderConstants(find_leaves_src, {
+                        WORKGROUP_SIZE_X: this.workgroupLayoutGrid.workgroupSize[0],
+                        WORKGROUP_SIZE_Y: this.workgroupLayoutGrid.workgroupSize[1],
+                        WORKGROUP_SIZE_Z: this.workgroupLayoutGrid.workgroupSize[2],
+                        MAX_STACK_SIZE: stackSize,
+                    }),
+                }),
+                entryPoint: "main",
+                constants: {
+                    TREE_DEPTH: this.scene.tree.depth,
+                    BLOCK_SIZE: 128,
+                },
+            },
+        });
+
+        // === Workgroup Strategy: 1 ray per workgroup for sorting ===
+        const oneWorkgroupPerRay = (blockSize: number): WorkgroupStrategy =>
+            ({ problemSize, totalThreads }) => {
+                if (blockSize > totalThreads) throw new Error(`BLOCK_SIZE too large`);
+                const rayCount = problemSize[0];
+                return {
+                    workgroupSize: [blockSize, 1, 1],
+                    dispatchSize: [rayCount, 1, 1],
+                };
+            };
+
+        const rayCount = this.raySamples[0] * this.raySamples[1];
+        const sortProblemSize: [number, number, number] = [rayCount, 1, 1];
+        this.workgroupLayoutSort = this.computeWorkgroupLayout(sortProblemSize, limits, oneWorkgroupPerRay(128));
+
+        // === Pipeline: bitonicSort ===
+        this.pipelineBitonicSort = this.device.createComputePipeline({
+            layout: pipelineLayoutSort,
+            compute: {
+                module: this.device.createShaderModule({
+                    code: this.applyShaderConstants(bitonic_sort_src, {
+                        WORKGROUP_SIZE: this.workgroupLayoutSort.workgroupSize[0],
+                    }),
+                }),
+                entryPoint: "main",
+                constants: {
+                    BLOCK_SIZE: 128,
+                },
+            },
+        });
     }
 
     async createDevice() {
@@ -799,12 +866,9 @@ export class Renderer {
     }
 
     computeFindLeaves(encoder: GPUComputePassEncoder) {
-        const workgroupSizeX = 8;
-        const workgroupSizeY = 8;
-
-        const dispatchX = Math.ceil(this.raySamples[0] / workgroupSizeX);
-        const dispatchY = Math.ceil(this.raySamples[1] / workgroupSizeY);
-        const dispatchZ = 1;
+        const dispatchX = this.workgroupLayoutGrid.dispatchSize[0];
+        const dispatchY = this.workgroupLayoutGrid.dispatchSize[1];
+        const dispatchZ = this.workgroupLayoutGrid.dispatchSize[2];
 
         encoder.setPipeline(this.pipelineFindLeaves);
         encoder.setBindGroup(0, this.bind_group_find);
@@ -812,8 +876,7 @@ export class Renderer {
     }
 
     computebitonicSort(encoder: GPUComputePassEncoder) {
-
-        const totalWorkgroups = this.raySamples[0] * this.raySamples[1]; // One workgroup per ray
+        const totalWorkgroups = this.workgroupLayoutSort.dispatchSize[0];
 
         encoder.setPipeline(this.pipelineBitonicSort);
         encoder.setBindGroup(0, this.bind_group_sort);
@@ -976,7 +1039,7 @@ export class Renderer {
                     { binding: 5, resource: { buffer: this.rayBuffer } }
                 ]
             });
-
+            this.setupComputePipelines();
         }
         this.runComputePass();
     }
@@ -988,6 +1051,41 @@ export class Renderer {
             result = result.replace(placeholder, value.toString());
         }
         return result;
+    }
+
+    computeWorkgroupLayout(
+        problemSize: [number, number, number],
+        limits: WorkgroupLimits,
+        strategy: WorkgroupStrategy
+    ): WorkgroupLayout {
+        const result = strategy({
+            totalThreads: limits.maxTotalThreads,
+            problemSize,
+        });
+
+        const [workDimX, workDimY, workDimZ] = result.workgroupSize;
+        const totalThreads = workDimX * workDimY * workDimZ;
+
+        // Validate limits
+        if (workDimX > limits.maxSizeX)
+            throw new Error(`workDimX ${workDimX} exceeds device limit ${limits.maxSizeX}`);
+        if (workDimY > limits.maxSizeY)
+            throw new Error(`workDimY ${workDimY} exceeds device limit ${limits.maxSizeY}`);
+        if (workDimZ > limits.maxSizeZ)
+            throw new Error(`workDimZ ${workDimZ} exceeds device limit ${limits.maxSizeZ}`);
+        if (totalThreads > limits.maxTotalThreads)
+            throw new Error(`Total threads (${totalThreads}) exceed max allowed (${limits.maxTotalThreads})`);
+
+        const dispatchSize = result.dispatchSize ?? [
+            Math.ceil(problemSize[0] / workDimX),
+            Math.ceil(problemSize[1] / workDimY),
+            Math.ceil(problemSize[2] / workDimZ),
+        ];
+
+        return {
+            workgroupSize: [workDimX, workDimY, workDimZ],
+            dispatchSize,
+        };
     }
 
 

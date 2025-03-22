@@ -9,3 +9,25 @@ export interface AABB {
     pos: vec3,
     size: vec3
 }
+
+interface WorkgroupStrategyResult {
+    workgroupSize: [number, number, number];
+    dispatchSize?: [number, number, number];
+}
+
+export type WorkgroupStrategy = (params: {
+    totalThreads: number;
+    problemSize: [number, number, number];
+}) => WorkgroupStrategyResult;
+
+export interface WorkgroupLayout {
+    workgroupSize: [number, number, number];
+    dispatchSize: [number, number, number];
+}
+
+export interface WorkgroupLimits {
+    maxTotalThreads: number;  // maxComputeInvocationsPerWorkgroup
+    maxSizeX: number;
+    maxSizeY: number;
+    maxSizeZ: number;
+}

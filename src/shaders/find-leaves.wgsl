@@ -1,3 +1,6 @@
+override TREE_DEPTH = 6u;
+override BLOCK_SIZE = 128u;
+
 struct compUniforms {
     rayOrigin: vec3f,   
     startTheta: f32,        // Start horizontal angle (radians)
@@ -88,24 +91,17 @@ fn rayIntersectsTriangle(rayPos: vec3f, rayDir: vec3f, v0: vec3f, v1: vec3f, v2:
     return -1.0;
 }
 
-// fn markPointHit(index: u32) {
-//     let wordIndex = index / 32;
-//     let bitIndex = index % 32;
-//     atomicOr(&pointVisibilityBuffer[wordIndex], (1u << bitIndex));
-// }
-
 fn markNodeHit(index: u32) {
     let wordIndex = index / 32;
     let bitIndex = index % 32;
     atomicOr(&nodeVisibilityBuffer[wordIndex], (1u << bitIndex));
 }
 
-@compute @workgroup_size(8, 8, 1) // 8x8 rays
+@compute @workgroup_size(__WORKGROUP_SIZE_X__, __WORKGROUP_SIZE_Y__, __WORKGROUP_SIZE_Z__)
 fn main(@builtin(global_invocation_id) id: vec3<u32>) {
-    let depth = 6u;
     let rayIndex = id.x + (id.y * uniforms.raySamples.x);
-    let baseOffset = rayIndex * 128;
-    let leafOffset = (1u << (2u * depth)) / 3u; // bit-shift instead of pow
+    let baseOffset = rayIndex * BLOCK_SIZE;
+    let leafOffset = (1u << (2u * TREE_DEPTH)) / 3u; // bit-shift instead of pow
 
     let gridSize = vec2f(f32(uniforms.raySamples.x), f32(uniforms.raySamples.y));
     let id2D = vec2f(f32(id.x) / gridSize.x, f32(id.y) / gridSize.y); 
@@ -121,12 +117,9 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
     ));
     let ray = Ray(rayPos, 0.0, rayDir);
 
-    // Stack-based iterative traversal to collect leaf nodes
     var stackPointer: i32 = 0;
-    // Maximum stack size depends on depth of the tree:
-    // S = 2^(D+2)-2
-    var stack: array<u32, 256>; // For depth 6
-    stack[0] = 0; // Start with the root node
+    var stack: array<u32, __MAX_STACK_SIZE__>; 
+    stack[0] = 0;
 
     var leafCount: u32 = 0u;
 
@@ -136,12 +129,12 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
 
         let node = nodeBuffer[nodeIndex];
         
-        // If the ray doesn't intersect this node, skip it
+        // No intersection, skip
         if (!rayAABBIntersection(ray.origin, ray.direction, node.position, node.size)) {
             continue;
         }
 
-        // If it's a leaf node, add it to the list
+        // Add leaf node to list
         if (node.childCount == 0u) {
             rayNodeBuffer[baseOffset + leafCount] = nodeIndex;
             leafCount += 1;
@@ -150,7 +143,7 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
             continue;
         }
 
-        // If it's an internal node, push all 4 children onto the stack
+        // For internal node, add 4 children
         let firstChildIndex = 4u * nodeIndex + 1u;                                       
         for (var i = 0u; i < 4u; i++) {
             stackPointer += 1;

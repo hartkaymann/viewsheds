@@ -1,3 +1,6 @@
+override TREE_DEPTH = 6u;
+override BLOCK_SIZE = 128u;
+
 struct Uniforms {
     modelMatrix: mat4x4f,
     viewMatrix: mat4x4f,
@@ -58,8 +61,7 @@ fn main(
     ) -> VertexOutput {
     var output: VertexOutput;
 
-    let depth = 6u;
-    let baseOffset = (1u << (2u * depth)) / 3u; // bit-shift instead of pow
+    let baseOffset = (1u << (2u * TREE_DEPTH)) / 3u; // bit-shift instead of pow
     let nodeIndex = baseOffset + instance_index;
     let node = nodeBuffer[nodeIndex];
 
@@ -75,7 +77,7 @@ fn main(
     color = vec4f(1.0, 0.5, 0.3, 1.0);
 
     for (var i = 0u; i < 64u; i++) {
-        if (rayNodeBuffer[i * 128u] == nodeIndex) {
+        if (rayNodeBuffer[i * BLOCK_SIZE] == nodeIndex) {
             color = vec4f(0.2, 0.5, 1.0, 1.0);
             break;
         }
