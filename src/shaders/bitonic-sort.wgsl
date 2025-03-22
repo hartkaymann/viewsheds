@@ -1,5 +1,5 @@
 // Constants
-const BLOCK_SIZE: u32 = 128u;
+override BLOCK_SIZE: u32 = 128u;
 
 // Shared workgroup memory
 var<workgroup> keys: array<f32, BLOCK_SIZE>;
@@ -86,7 +86,7 @@ fn bitonicCompare(i: u32, j: u32, dir: bool) {
     }
 }
 
-@compute @workgroup_size(128)
+@compute @workgroup_size(__WORKGROUP_SIZE__)
 fn main(@builtin(local_invocation_id) lid: vec3<u32>,
         @builtin(workgroup_id) gid: vec3<u32>) {    
     

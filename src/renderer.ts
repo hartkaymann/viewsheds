@@ -494,8 +494,15 @@ export class Renderer {
         this.pipelineBitonicSort = this.device.createComputePipeline({
             layout: pipeline_layout_sort,
             compute: {
-                module: this.device.createShaderModule({ code: bitonic_sort_src }),
+                module: this.device.createShaderModule({
+                    code: this.applyShaderConstants(bitonic_sort_src, {
+                        WORKGROUP_SIZE: 128,
+                    })
+                }),
                 entryPoint: "main",
+                constants: {
+                    BLOCK_SIZE: 128
+                }
             }
         });
 
@@ -788,64 +795,8 @@ export class Renderer {
         }
 
         computePass.end();
-
-        let distancesBuffer: GPUBuffer | undefined;
-        let indicesBuffer: GPUBuffer | undefined;
-
-        if (sortNodes) {
-            const rayCount = this.raySamples[0] * this.raySamples[1];
-            const bufferSize = rayCount * 128 * 4;
-
-            distancesBuffer = this.device.createBuffer({
-                size: bufferSize,
-                usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
-            });
-
-            indicesBuffer = this.device.createBuffer({
-                size: bufferSize,
-                usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
-            });
-
-            computeEncoder.copyBufferToBuffer(
-                this.debugDistancesBuffer, 0,
-                distancesBuffer, 0,
-                bufferSize
-            );
-
-            computeEncoder.copyBufferToBuffer(
-                this.rayToNodeBuffer, 0,
-                indicesBuffer, 0,
-                bufferSize
-            );
-        }
-
         this.device.queue.submit([computeEncoder.finish()]);
-
-        if (sortNodes && distancesBuffer && indicesBuffer) {
-            // Map both buffers in parallel
-            await Promise.all([
-                distancesBuffer.mapAsync(GPUMapMode.READ),
-                indicesBuffer.mapAsync(GPUMapMode.READ),
-            ]);
-
-            const distanceArray = new Float32Array(distancesBuffer.getMappedRange());
-            const indexArray = new Uint32Array(indicesBuffer.getMappedRange());
-
-            const rayCount = this.raySamples[0] * this.raySamples[1];
-
-            for (let ray = 0; ray < rayCount; ray++) {
-                const offset = ray * 128;
-                console.log(`Ray ${ray}:`);
-                for (let i = 0; i < 128; i++) {
-                    const nodeIndex = indexArray[offset + i];
-                    const distance = distanceArray[offset + i];
-
-                    console.log(`  Node ${nodeIndex} => distance ${distance.toFixed(3)}`);
-                }
-            }
-        }
     }
-
 
     computeFindLeaves(encoder: GPUComputePassEncoder) {
         const workgroupSizeX = 8;
@@ -1028,6 +979,15 @@ export class Renderer {
 
         }
         this.runComputePass();
+    }
+
+    applyShaderConstants(shaderSrc: string, constants: Record<string, string | number>): string {
+        let result = shaderSrc;
+        for (const [key, value] of Object.entries(constants)) {
+            const placeholder = new RegExp(`__${key}__`, 'g');
+            result = result.replace(placeholder, value.toString());
+        }
+        return result;
     }
 
 
