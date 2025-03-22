@@ -37,6 +37,8 @@ const cubeEdges = array<vec3<f32>, 24>(
 @group(0) @binding(0) var<uniform> uniforms: Uniforms;
 @group(0) @binding(1) var<storage, read> nodeBuffer: array<QuadTreeNode>;
 @group(0) @binding(2) var<storage, read> nodeVisibilityBuffer: array<u32>;
+@group(0) @binding(3) var<storage, read> rayNodeBuffer: array<u32>;
+
 
 struct VertexOutput {
   @builtin(position) position: vec4f,
@@ -68,8 +70,18 @@ fn main(
     output.position = uniforms.projectionMatrix * uniforms.viewMatrix * position;
 
     let isVisible = getBoolean(instance_index);
-    output.color = select(vec4f(1.0, 1.0, 1.0, 1.0), vec4f(1.0, 0.5, 0.3, 1.0), isVisible);
+    var color = vec4f(1.0, 1.0, 1.0, 0.5); 
+    if (getBoolean(instance_index)) {
+    color = vec4f(1.0, 0.5, 0.3, 1.0);
 
+    for (var i = 0u; i < 64u; i++) {
+        if (rayNodeBuffer[i * 128u] == nodeIndex) {
+            color = vec4f(0.2, 0.5, 1.0, 1.0);
+            break;
+        }
+    }
+}
+    output.color = color;
     return output;
 }
 

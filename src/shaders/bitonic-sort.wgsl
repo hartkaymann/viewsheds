@@ -1,17 +1,10 @@
 // Constants
 const BLOCK_SIZE: u32 = 128u;
-const RADIX_BITS: u32 = 4u;
-const RADIX_BUCKETS: u32 = 1u << RADIX_BITS; // 16
-const TOTAL_BITS: u32 = 32u;
-const PASSES: u32 = TOTAL_BITS / RADIX_BITS;
 
 // Shared workgroup memory
-var<workgroup> keys: array<u32, BLOCK_SIZE>;
+var<workgroup> keys: array<f32, BLOCK_SIZE>;
 var<workgroup> indices: array<u32, BLOCK_SIZE>;
-var<workgroup> tempKeys: array<u32, BLOCK_SIZE>;
-var<workgroup> tempIndices: array<u32, BLOCK_SIZE>;
-var<workgroup> histogram: array<atomic<u32>, RADIX_BUCKETS>;
-var<workgroup> scanned: array<atomic<u32>, RADIX_BUCKETS>;
+
 
 struct compUniforms {
     rayOrigin: vec3f,   
@@ -40,9 +33,12 @@ struct QuadTreeNode {
 };
 
 @group(0) @binding(0) var<storage, read> nodeBuffer: array<QuadTreeNode>;
-@group(0) @binding(1) var<storage, read_write> rayBuffer: array<Ray>;
-@group(0) @binding(2) var<storage, read_write> rayNodeBuffer: array<u32>;
-@group(0) @binding(3) var<uniform> uniforms: compUniforms;
+@group(0) @binding(1) var<storage, read> rayBuffer: array<Ray>;
+@group(0) @binding(2) var<storage, read> rayNodeCounts: array<u32>;
+@group(0) @binding(3) var<storage, read_write> rayNodeBuffer: array<u32>;
+@group(0) @binding(4) var<storage, read_write> debugDistances: array<f32>;
+
+@group(0) @binding(5) var<uniform> uniforms: compUniforms;
 
 fn rayAABBIntersection(origin: vec3f, dir: vec3f, pos: vec3f, size: vec3f) -> f32 {
     let invDir = 1.0 / dir; // Compute inverse of ray direction
@@ -63,94 +59,82 @@ fn rayAABBIntersection(origin: vec3f, dir: vec3f, pos: vec3f, size: vec3f) -> f3
 }
 
 fn getEntryDistance(ray: Ray, nodeIndex: u32) -> f32 {
-    if (nodeIndex == 0xFFFFFFFFu) { // Invalid node index
-        return 1e9; // Large distance to push it to the end
+    if (nodeIndex == 0xFFFFFFFFu) {
+        return 1e9;
     }
 
     let node = nodeBuffer[nodeIndex];
-    return rayAABBIntersection(ray.origin, ray.direction, node.position, node.position + node.size);
+    return rayAABBIntersection(ray.origin, ray.direction, node.position, node.size);
 }
 
-fn floatToSortableUint(x: f32) -> u32 {
-    let bits = bitcast<u32>(x);
-    return select(bits ^ 0xFFFFFFFFu, bits ^ 0x80000000u, x < 0.0);
+fn bitonicCompare(i: u32, j: u32, dir: bool) {
+    if (j >= BLOCK_SIZE) { return; }
+
+    let key_i = keys[i];
+    let key_j = keys[j];
+
+    let idx_i = indices[i];
+    let idx_j = indices[j];
+
+    let swap = (key_i > key_j) == dir;
+
+    if (swap) {
+        keys[i] = key_j;
+        keys[j] = key_i;
+        indices[i] = idx_j;
+        indices[j] = idx_i;
+    }
 }
 
 @compute @workgroup_size(128)
 fn main(@builtin(local_invocation_id) lid: vec3<u32>,
         @builtin(workgroup_id) gid: vec3<u32>) {    
     
-    let ray = rayBuffer[gid.x];
-
     let local_id = lid.x;
-    let block_start = gid.x * (BLOCK_SIZE + 1u);
-    let count = rayNodeBuffer[block_start];
+    let block_start = gid.x * BLOCK_SIZE;
+    let ray = rayBuffer[gid.x];
+    let count = min(rayNodeCounts[gid.x], BLOCK_SIZE);
     let isActive = local_id < count;
 
     var key: u32 = 0u;
     var index: u32 = 0u;
 
+    // Load keys and indices
     if (isActive) {
-        index = rayNodeBuffer[block_start + 1u + local_id];
-        let node = nodeBuffer[index];
-        let distance = rayAABBIntersection(ray.origin, ray.direction, node.position, node.position + node.size);
-        key = floatToSortableUint(distance);
+        let nodeIndex = rayNodeBuffer[block_start + local_id];
+        indices[local_id] = nodeIndex;
+        keys[local_id] = getEntryDistance(ray, nodeIndex);
+    } else {
+        // Fill with max values to push them to the end
+        indices[local_id] = 0xFFFFFFFFu;
+        keys[local_id] = 1e9;
     }
-
-    keys[local_id] = key;
-    indices[local_id] = index;
 
     workgroupBarrier();
 
-    for (var curr_pass = 0u; curr_pass < PASSES; curr_pass++) {
-        let shift = curr_pass * RADIX_BITS;
-
-        // Reset histogram
-        if (local_id < RADIX_BUCKETS) {
-            atomicStore(&histogram[local_id], 0u);
-            atomicStore(&scanned[local_id], 0u);        
-        }
-        workgroupBarrier();
-
-        // Histogram step
-        if (isActive) {
-            let key = keys[local_id];
-            let digit = (key >> shift) & (RADIX_BUCKETS - 1u);
-            atomicAdd(&histogram[digit], 1u);
-        }
-        workgroupBarrier();
-
-        // Exclusive scan
-        if (local_id == 0u) {
-            var sum = 0u;
-            for (var i = 0u; i < RADIX_BUCKETS; i = i + 1u) {
-                atomicStore(&scanned[i], sum);
-                sum = sum + atomicLoad(&histogram[i]);
+    // Bitonic sort in shared memory
+    var k = 2u;
+    while (k <= BLOCK_SIZE) {
+        var j = k >> 1u;
+        while (j > 0u) {
+            let ixj = local_id ^ j;
+            if (ixj > local_id) {
+                let ascending = ((local_id & k) == 0u);
+                bitonicCompare(local_id, ixj, ascending);
             }
+            workgroupBarrier();
+            j = j >> 1u;
         }
-        workgroupBarrier();
-
-        // Scatter
-        if (isActive) {
-            let key = keys[local_id];
-            let idx = indices[local_id];
-            let digit = (key >> shift) & (RADIX_BUCKETS - 1u);
-            let offset = atomicAdd(&scanned[digit], 1u);
-            tempKeys[offset] = key;
-            tempIndices[offset] = idx;
-        }
-        workgroupBarrier();
-
-        // Swap pointers
-        if (isActive) {
-            keys[local_id] = tempKeys[local_id];
-            indices[local_id] = tempIndices[local_id];
-        }
-        workgroupBarrier();
+        k = k << 1u;
     }
 
-    // Write sorted indices back
+    workgroupBarrier();
+
+    // Write back sorted indices
     if (isActive) {
-        rayNodeBuffer[block_start + 1u + local_id] = indices[local_id];
+        rayNodeBuffer[block_start + local_id] = indices[local_id];
+
+        let dist = getEntryDistance(ray, indices[local_id]);
+        debugDistances[block_start + local_id] = dist;
     }
 }

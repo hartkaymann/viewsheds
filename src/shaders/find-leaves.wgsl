@@ -32,8 +32,10 @@ struct QuadTreeNode {
 @group(0) @binding(0) var<storage, read> nodeBuffer: array<QuadTreeNode>;
 @group(0) @binding(1) var<storage, read_write> rayBuffer: array<Ray>;
 @group(0) @binding(2) var<storage, read_write> rayNodeBuffer: array<u32>;
-@group(0) @binding(3) var<storage, read_write> nodeVisibilityBuffer: array<atomic<u32>>;
-@group(0) @binding(4) var<uniform> uniforms: compUniforms;
+@group(0) @binding(3) var<storage, read_write> rayNodeCounts: array<u32>;
+@group(0) @binding(4) var<storage, read_write> nodeVisibilityBuffer: array<atomic<u32>>;
+
+@group(0) @binding(5) var<uniform> uniforms: compUniforms;
 
 fn rayAABBIntersection(origin: vec3f, dir: vec3f, pos: vec3f, size: vec3f) -> bool {
     let invDir = 1.0 / dir; // Compute inverse of ray direction
@@ -141,8 +143,9 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
 
         // If it's a leaf node, add it to the list
         if (node.childCount == 0u) {
-            leafCount += 1;
             rayNodeBuffer[baseOffset + leafCount] = nodeIndex;
+            leafCount += 1;
+
             markNodeHit(nodeIndex - leafOffset);
             continue;
         }
@@ -153,9 +156,8 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
             stackPointer += 1;
             stack[stackPointer] = firstChildIndex + i;
         }
-
-        rayNodeBuffer[baseOffset] = leafCount;
     }
+    rayNodeCounts[rayIndex] = leafCount;
 
     // Store ray in the buffer
     let linearIndex = id.x + (id.y * uniforms.raySamples.x);
