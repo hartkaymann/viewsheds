@@ -73,7 +73,6 @@ export class Renderer {
     nodeToTriangleBuffer: GPUBuffer;
     closestHitBuffer: GPUBuffer;
     rayToNodeBuffer: GPUBuffer;
-    debugDistancesBuffer: GPUBuffer;
     rayNodeCountsBuffer: GPUBuffer;
 
     // Others
@@ -214,12 +213,6 @@ export class Renderer {
         this.device.queue.writeBuffer(this.closestHitBuffer, 0, maxFloatData);
 
         this.rayToNodeBuffer = this.device.createBuffer({
-            size: this.raySamples[0] * this.raySamples[1] * 128 * 4,
-            usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC,
-            mappedAtCreation: false,
-        });
-
-        this.debugDistancesBuffer = this.device.createBuffer({
             size: this.raySamples[0] * this.raySamples[1] * 128 * 4,
             usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC,
             mappedAtCreation: false,
@@ -415,8 +408,7 @@ export class Renderer {
                 { binding: 1, resource: { buffer: this.rayBuffer } },
                 { binding: 2, resource: { buffer: this.rayNodeCountsBuffer } },
                 { binding: 3, resource: { buffer: this.rayToNodeBuffer } },
-                { binding: 4, resource: { buffer: this.debugDistancesBuffer } },
-                { binding: 5, resource: { buffer: this.compUniformBuffer } },
+                { binding: 4, resource: { buffer: this.compUniformBuffer } },
             ]
         });
 
@@ -996,11 +988,28 @@ export class Renderer {
         this.device.queue.writeBuffer(this.renderModeBuffer, 0, new Uint32Array([renderMode]));
 
         if (oldSamples[0] != this.raySamples[0] || oldSamples[1] != this.raySamples[1]) {
+
+            // Recreate buffers
             this.rayBuffer = this.device.createBuffer({
                 label: 'buffer-ray',
                 size: this.raySamples[0] * this.raySamples[1] * 2 * 4 * 4,
                 usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST | GPUBufferUsage.VERTEX,
             });
+
+            this.rayToNodeBuffer = this.device.createBuffer({
+                label: 'buffer-ray-node',
+                size: this.raySamples[0] * this.raySamples[1] * 128 * 4,
+                usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC,
+                mappedAtCreation: false,
+            });
+    
+            this.rayNodeCountsBuffer = this.device.createBuffer({
+                label: 'buffer-ray-node-count',
+                size: this.raySamples[0] * this.raySamples[1] * 4,
+                usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC,
+                mappedAtCreation: false,
+            });
+
             // Update the bind group with the new ray buffer
             this.bind_group_find = this.device.createBindGroup({
                 label: 'bind-group-find',
@@ -1023,8 +1032,7 @@ export class Renderer {
                     { binding: 1, resource: { buffer: this.rayBuffer } },
                     { binding: 2, resource: { buffer: this.rayNodeCountsBuffer } },
                     { binding: 3, resource: { buffer: this.rayToNodeBuffer } },
-                    { binding: 4, resource: { buffer: this.debugDistancesBuffer } },
-                    { binding: 5, resource: { buffer: this.compUniformBuffer } },
+                    { binding: 4, resource: { buffer: this.compUniformBuffer } },
                 ]
             });
 
