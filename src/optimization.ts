@@ -133,9 +133,10 @@ class QuadTreeNode {
                 this.bounds.size[1] = Math.max(this.bounds.size[1], (child.bounds.pos[1] + child.bounds.size[1]) - this.bounds.pos[1]);
 
                 currentStart = newEnd;
-            } else {
-                console.warn("No points assigned to child node:", child.bounds);
-            }
+            } 
+            // else {
+            //      console.warn("No points assigned to child node:", child.bounds);
+            // }
         }
     }
 
@@ -257,8 +258,16 @@ export class QuadTree {
         return pointToNodeBuffer;
     };
 
+    static noMaxNodesHit(depth: number): number {
+        return 2 ** (depth + 1)
+    }
+
     static totalNodes(depth: number): number {
         return (4 ** (depth + 1) - 1) / 3;
+    }
+
+    static leafNodes(depth: number): number {
+        return 4 ** depth;
     }
 }
 

@@ -1,6 +1,6 @@
 import { mat4, vec3 } from "gl-matrix";
-import { Camera } from "./camera";
-import { Scene } from "./scene";
+import { Camera } from "./Camera";
+import { Scene } from "./Scene";
 
 export class InputHandler {
 

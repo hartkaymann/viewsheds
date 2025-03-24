@@ -22,7 +22,7 @@ export class BufferManager {
 
     initBuffers(configs: BufferInitConfig[]): void {
         for (const { name, size, usage, label, data } of configs) {
-            const clampedSize = Math.min(size, this.device.limits.maxStorageBufferBindingSize);
+            const clampedSize = Math.max(Math.min(size, this.device.limits.maxStorageBufferBindingSize), 4);
             const buffer = this.device.createBuffer({
                 label: label ?? `buffer-${name}`,
                 size: clampedSize,

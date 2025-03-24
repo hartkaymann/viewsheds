@@ -7,13 +7,14 @@ import rays_src from "./shaders/rays.wgsl"
 import gizmo_src from "./shaders/gizmo.wgsl"
 import nodes_src from "./shaders/nodes.wgsl"
 
-import { Scene } from "./scene";
+import { Scene } from "./Scene";
 import { mat3, mat4, vec3 } from "gl-matrix";
 import { WorkgroupLayout, WorkgroupLimits, WorkgroupStrategy } from "./types/types"
 import { BufferManager } from "./BufferManager"
-import { QuadTree } from "./optimization"
-import { data } from "jquery"
+import { QuadTree } from "./Optimization"
 import { BindGroupManager } from "./BindGroupsManager"
+import { PipelineManager } from "./PipelineManager"
+import { WorkgroupManager } from "./WorkgroupManager"
 
 
 export class Renderer {
@@ -21,7 +22,6 @@ export class Renderer {
     canvas: HTMLCanvasElement
 
     // Device/Context objects
-    adapter: GPUAdapter;
     device: GPUDevice;
     context: GPUCanvasContext;
     format: GPUTextureFormat;
@@ -31,45 +31,45 @@ export class Renderer {
     depth_buffer: GPUTexture;
     depth_buffer_view: GPUTextureView;
 
-    // Pipeline objects
-    pipelineFindLeaves: GPUComputePipeline;
-    pipelineBitonicSort: GPUComputePipeline;
-
-    pipelineRenderPoints: GPURenderPipeline;
-    pipelineRenderWireframe: GPURenderPipeline;
-    pipelineRenderRays: GPURenderPipeline;
-    pipelineRenderGizmo: GPURenderPipeline;
-    pipelineRenderNodes: GPURenderPipeline;
-
-    raySamples: Uint32Array = new Uint32Array([8, 8]);
+    raySamples: Uint32Array = new Uint32Array([1, 1]);
 
     // Managers
     bufferManager: BufferManager;
     bindGroupsManager: BindGroupManager;
-
-    // Others
-    workgroupLayoutGrid: WorkgroupLayout;
-    workgroupLayoutSort: WorkgroupLayout;
+    pipelineManager: PipelineManager;
+    workgroups: WorkgroupManager;
 
     // Scene to render
     scene: Scene
+
+    canRender = {
+        gizmo: true,
+        points: false,
+        nodes: false,
+        mesh: false,
+    };
 
     // Time
     prevTime = 0;
     timeAccumulator = 0;
     readonly timeStep = 1 / 60;
-    fps = 0;  // Frame rate value
-    fpsLastTime = 0;  // Last time we calculated FPS
-    frameCount = 0;  // Frames since the last FPS calculation
+    fps = 0;
+    fpsLastTime = 0;
+    frameCount = 0;
 
-    constructor(canvas: HTMLCanvasElement, scene: Scene) {
+    constructor(canvas: HTMLCanvasElement, scene: Scene, device: GPUDevice) {
         this.canvas = canvas;
         this.scene = scene;
+        this.device = device;
+
+        this.bufferManager = new BufferManager(this.device);
+        this.bindGroupsManager = new BindGroupManager(this.device);
+        this.pipelineManager = new PipelineManager(this.device);
+
+        this.workgroups = new WorkgroupManager(this.device);
     }
 
     async init() {
-        this.device = await this.createDevice();
-
         this.context = <GPUCanvasContext>this.canvas.getContext("webgpu");
         this.format = "bgra8unorm";
 
@@ -79,25 +79,21 @@ export class Renderer {
             alphaMode: "opaque"
         });
 
-        this.bufferManager = new BufferManager(this.device);
         this.bufferManager.initBuffers([
             {
                 name: "points",
-                size: this.scene.points.byteLength,
+                size: 16,
                 usage: GPUBufferUsage.VERTEX | GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
-                data: this.scene.points
             },
             {
                 name: "colors",
-                size: this.scene.colors.byteLength,
+                size: 16,
                 usage: GPUBufferUsage.VERTEX | GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
-                data: this.scene.colors
             },
             {
                 name: "indices",
                 size: this.scene.indices.byteLength,
                 usage: GPUBufferUsage.INDEX | GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
-                data: this.scene.indices
             },
             {
                 name: "point_visibility",
@@ -106,7 +102,7 @@ export class Renderer {
             },
             {
                 name: "node_visibility",
-                size: Math.pow(4, this.scene.tree.depth) / 32 * Uint32Array.BYTES_PER_ELEMENT,
+                size: QuadTree.leafNodes(this.scene.tree.depth) / 32 * Uint32Array.BYTES_PER_ELEMENT,
                 usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
             },
             {
@@ -126,9 +122,9 @@ export class Renderer {
             },
             {
                 name: "gizmo_vertices",
-                size: this.scene.gizmo.byteLength,
+                size: this.scene.gizmo.vertices.byteLength,
                 usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
-                data: this.scene.gizmo
+                data: this.scene.gizmo.vertices
             },
             {
                 name: "gizmo_uniforms",
@@ -144,19 +140,16 @@ export class Renderer {
                 name: "nodes",
                 size: QuadTree.totalNodes(this.scene.tree.depth) * QuadTree.BYTES_PER_NODE * 4,
                 usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
-                data: this.scene.tree.flatten()
             },
             {
                 name: "point_to_node",
                 size: this.scene.tree.root.pointCount * 4,
                 usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
-                data: this.scene.tree.mapPointsToNodes()
             },
             {
                 name: "node_to_triangle",
                 size: this.scene.nodeToTriangles.byteLength,
                 usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
-                data: this.scene.nodeToTriangles
             },
             {
                 name: "closest_hit",
@@ -166,7 +159,7 @@ export class Renderer {
             },
             {
                 name: "ray_nodes",
-                size: this.raySamples[0] * this.raySamples[1] * 128 * 4,
+                size: this.raySamples[0] * this.raySamples[1] * QuadTree.noMaxNodesHit(this.scene.tree.depth) * 4,
                 usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC,
             },
             {
@@ -176,7 +169,6 @@ export class Renderer {
             },
         ]);
 
-        this.bindGroupsManager = new BindGroupManager(this.device);
         this.bindGroupsManager.createLayout({
             name: "find",
             entries: [
@@ -322,183 +314,187 @@ export class Renderer {
 
         this.setupComputePipelines();
 
-        const pointShaderModule = this.device.createShaderModule({ code: points_src });
-        this.pipelineRenderPoints = this.device.createRenderPipeline({
-            label: 'render-pipeline',
+        this.pipelineManager.create({
+            name: "render-points",
+            type: "render",
             layout: pipeline_layout_points,
-            vertex: {
-                module: pointShaderModule,
-                entryPoint: 'main',
-                buffers: [
-                    {
-                        arrayStride: 4 * 4, // 4 floats @ 4 bytes
-                        attributes: [
-                            {
-                                shaderLocation: 0, // Position
-                                offset: 0,
-                                format: 'float32x4'
-                            }
-                        ]
-                    },
-                    {
-                        arrayStride: 4 * 4, // 4 floats @ 4 bytes
-                        attributes: [
-                            {
-                                shaderLocation: 1, // Color
-                                offset: 0,
-                                format: 'float32x4'
-                            }
-                        ]
-                    }
-                ]
-            },
-            fragment: {
-                module: pointShaderModule,
-                entryPoint: 'main_fs',
-                targets: [
-                    {
-                        format: 'bgra8unorm',
-                        blend: {
-                            color: {
-                                srcFactor: 'src-alpha',
-                                dstFactor: 'one-minus-src-alpha',
-                                operation: 'add'
-                            },
-                            alpha: {
-                                srcFactor: 'one',
-                                dstFactor: 'one-minus-src-alpha',
-                                operation: 'add'
+            code: points_src,
+            render: {
+                vertex: {
+                    entryPoint: 'main',
+                    buffers: [
+                        {
+                            arrayStride: 4 * 4, // 4 floats @ 4 bytes
+                            attributes: [
+                                {
+                                    shaderLocation: 0, // Position
+                                    offset: 0,
+                                    format: 'float32x4'
+                                }
+                            ]
+                        },
+                        {
+                            arrayStride: 4 * 4, // 4 floats @ 4 bytes
+                            attributes: [
+                                {
+                                    shaderLocation: 1, // Color
+                                    offset: 0,
+                                    format: 'float32x4'
+                                }
+                            ]
+                        }
+                    ]
+                },
+                fragment: {
+                    entryPoint: "main_fs",
+                    targets: [
+                        {
+                            format: 'bgra8unorm',
+                            blend: {
+                                color: {
+                                    srcFactor: 'src-alpha',
+                                    dstFactor: 'one-minus-src-alpha',
+                                    operation: 'add'
+                                },
+                                alpha: {
+                                    srcFactor: 'one',
+                                    dstFactor: 'one-minus-src-alpha',
+                                    operation: 'add'
+                                }
                             }
                         }
-                    }
-                ]
-            },
-            primitive: {
-                topology: 'point-list'
-            },
-            depthStencil: {
-                format: "depth24plus",
-                depthWriteEnabled: true,
-                depthCompare: "less",
-            },
-        });
-
-        const wireframeShaderModule = this.device.createShaderModule({ code: wireframe_src });
-        this.pipelineRenderWireframe = this.device.createRenderPipeline({
-            label: 'render-pipeline',
-            layout: pipeline_layout_render,
-            vertex: {
-                module: wireframeShaderModule,
-                entryPoint: 'main',
-            },
-            fragment: {
-                module: wireframeShaderModule,
-                entryPoint: 'main_fs',
-                targets: [
-                    { format: 'bgra8unorm' }
-                ]
-            },
-            primitive: {
-                topology: 'line-strip',
-            },
-            depthStencil: {
-                format: "depth24plus",
-                depthWriteEnabled: true,
-                depthCompare: "less",
-            },
-        });
-
-        const rayShaderModule = this.device.createShaderModule({ code: rays_src });
-        this.pipelineRenderRays = this.device.createRenderPipeline({
-            label: 'render-pipeline-rays',
-            layout: pipeline_layout_render,
-            vertex: {
-                module: rayShaderModule,
-                entryPoint: 'main_vs',
-            },
-            fragment: {
-                module: rayShaderModule,
-                entryPoint: 'main_fs',
-                targets: [
-                    { format: 'bgra8unorm' }
-                ]
-            },
-            primitive: {
-                topology: 'line-list'
-            },
-            depthStencil: {
-                format: "depth24plus",
-                depthWriteEnabled: true,
-                depthCompare: "less",
-            },
-        });
-
-        const gizmoShaderModule = this.device.createShaderModule({ code: gizmo_src });
-        this.pipelineRenderGizmo = this.device.createRenderPipeline({
-            label: 'render-pipeline-gizmo',
-            layout: pipeline_layout_gizmo,
-            vertex: {
-                module: gizmoShaderModule,
-                entryPoint: 'main',
-                buffers: [
-                    {
-                        arrayStride: 4 * 4,
-                        attributes: [{ shaderLocation: 0, offset: 0, format: "float32x4" }],
-                    }
-                ],
-            },
-            fragment: {
-                module: gizmoShaderModule,
-                entryPoint: 'main_fs',
-                targets: [
-                    { format: 'bgra8unorm' }
-                ]
-            },
-            primitive: {
-                topology: 'line-strip',
+                    ]
+                },
+                primitive: { topology: 'point-list' },
+                depthStencil: { format: "depth24plus", depthWriteEnabled: true, depthCompare: "less" },
             }
         });
 
-        const nodesShaderModule = this.device.createShaderModule({ code: nodes_src });
-        this.pipelineRenderNodes = this.device.createRenderPipeline({
-            label: 'render-pipeline-nodes',
-            layout: pipeline_layout_nodes,
-            vertex: {
-                module: nodesShaderModule,
-                entryPoint: 'main',
-                constants: {
-                    TREE_DEPTH: this.scene.tree.depth,
-                    BLOCK_SIZE: 128,
+        this.pipelineManager.create({
+            name: "render-wireframe",
+            type: "render",
+            layout: pipeline_layout_render,
+            code: wireframe_src,
+            render: {
+                vertex: {
+                    entryPoint: 'main',
+                },
+                fragment: {
+                    entryPoint: 'main_fs',
+                    targets: [
+                        { format: 'bgra8unorm' }
+                    ]
+                },
+                primitive: {
+                    topology: 'line-strip',
+                },
+                depthStencil: {
+                    format: "depth24plus",
+                    depthWriteEnabled: true,
+                    depthCompare: "less",
+                },
+            }
+        });
+
+        this.pipelineManager.create({
+            name: "render-rays",
+            type: "render",
+            layout: pipeline_layout_render,
+            code: rays_src,
+            render: {
+                vertex: {
+                    entryPoint: 'main_vs',
+                },
+                fragment: {
+                    entryPoint: 'main_fs',
+                    targets: [
+                        { format: 'bgra8unorm' }
+                    ]
+                },
+                primitive: {
+                    topology: 'line-list'
+                },
+                depthStencil: {
+                    format: "depth24plus",
+                    depthWriteEnabled: true,
+                    depthCompare: "less",
+                },
+            }
+        });
+
+        this.pipelineManager.create({
+            name: "render-gizmo",
+            type: "render",
+            layout: pipeline_layout_gizmo,
+            code: gizmo_src,
+            render: {
+                vertex: {
+                    entryPoint: 'main',
+                    buffers: [
+                        {
+                            arrayStride: 4 * 4,
+                            attributes: [{ shaderLocation: 0, offset: 0, format: "float32x4" }],
+                        }
+                    ],
+                },
+                fragment: {
+                    entryPoint: 'main_fs',
+                    targets: [
+                        { format: 'bgra8unorm' }
+                    ]
+                },
+                primitive: {
+                    topology: 'line-strip',
                 }
+            }
+        });
+
+        this.pipelineManager.create({
+            name: "render-nodes",
+            type: "render",
+            layout: pipeline_layout_nodes,
+            code: nodes_src,
+            constants: {
+                TREE_DEPTH: this.scene.tree.depth,
+                BLOCK_SIZE: QuadTree.noMaxNodesHit(this.scene.tree.depth),
             },
-            fragment: {
-                module: nodesShaderModule,
-                entryPoint: 'main_fs',
-                targets: [{
-                    format: 'bgra8unorm',
-                    blend: {
-                        color: {
-                            srcFactor: "src-alpha",
-                            dstFactor: "one-minus-src-alpha",
-                            operation: "add",
-                        },
-                        alpha: {
-                            srcFactor: "one",
-                            dstFactor: "zero",
-                            operation: "add",
-                        },
-                    },
-                    writeMask: GPUColorWrite.ALL,
-                }]
-            },
-            primitive: {
-                topology: 'line-list',
-            },
-            depthStencil: {
-                format: "depth24plus",
-                depthWriteEnabled: true,
-                depthCompare: "less",
-            },
+            render: {
+                vertex: {
+                    entryPoint: 'main',
+                    buffers: [
+                        {
+                            arrayStride: 4 * 4,
+                            attributes: [{ shaderLocation: 0, offset: 0, format: "float32x4" }],
+                        }
+                    ],
+                },
+                fragment: {
+                    entryPoint: 'main_fs',
+                    targets: [{
+                        format: 'bgra8unorm',
+                        blend: {
+                            color: {
+                                srcFactor: "src-alpha",
+                                dstFactor: "one-minus-src-alpha",
+                                operation: "add",
+                            },
+                            alpha: {
+                                srcFactor: "one",
+                                dstFactor: "zero",
+                                operation: "add",
+                            },
+                        }
+                    }]
+                },
+                primitive: {
+                    topology: 'line-list',
+                },
+                depthStencil: {
+                    format: "depth24plus",
+                    depthWriteEnabled: true,
+                    depthCompare: "less",
+                },
+            }
         });
 
         this.depth_buffer = this.device.createTexture({
@@ -536,15 +532,105 @@ export class Renderer {
         this.render();
     }
 
-    private setupComputePipelines(): void {
-        // === Workgroup Limits ===
-        const limits: WorkgroupLimits = {
-            maxTotalThreads: this.device.limits.maxComputeInvocationsPerWorkgroup,
-            maxSizeX: this.device.limits.maxComputeWorkgroupSizeX,
-            maxSizeY: this.device.limits.maxComputeWorkgroupSizeY,
-            maxSizeZ: this.device.limits.maxComputeWorkgroupSizeZ,
-        };
+    setPointData() {
+        this.bufferManager.resize("points", this.scene.points.byteLength);
+        this.bufferManager.write("points", this.scene.points);
 
+        this.bufferManager.resize("colors", this.scene.colors.byteLength);
+        this.bufferManager.write("colors", this.scene.colors);
+
+        this.bufferManager.resize("point_visibility", Math.ceil(this.scene.points.length / 3 / 32) * Uint32Array.BYTES_PER_ELEMENT);
+
+        this.bindGroupsManager.updateGroup("render", [
+            { binding: 0, resource: { buffer: this.bufferManager.get("points") } },
+            { binding: 2, resource: { buffer: this.bufferManager.get("point_visibility") } },
+        ]);
+
+        this.canRender.points = true;
+    }
+
+    setNodeData() {
+        this.bufferManager.resize("nodes", QuadTree.totalNodes(this.scene.tree.depth) * QuadTree.BYTES_PER_NODE * 4);
+        this.bufferManager.write("nodes", this.scene.tree.flatten());
+
+        this.bufferManager.resize("point_to_node", this.scene.tree.root.pointCount * 4);
+        this.bufferManager.write("point_to_node", this.scene.tree.mapPointsToNodes());
+
+        this.bufferManager.resize("node_visibility", QuadTree.leafNodes(this.scene.tree.depth) / 32 * Uint32Array.BYTES_PER_ELEMENT);
+        this.bufferManager.resize("ray_nodes", this.raySamples[0] * this.raySamples[1] * QuadTree.noMaxNodesHit(this.scene.tree.depth) * 4);
+
+        this.bindGroupsManager.updateGroup("find", [
+            { binding: 0, resource: { buffer: this.bufferManager.get("nodes") } },
+            { binding: 3, resource: { buffer: this.bufferManager.get("ray_nodes") } },
+            { binding: 4, resource: { buffer: this.bufferManager.get("node_visibility") } },
+        ]);
+
+        this.bindGroupsManager.updateGroup("sort", [
+            { binding: 0, resource: { buffer: this.bufferManager.get("nodes") } },
+            { binding: 3, resource: { buffer: this.bufferManager.get("ray_nodes") } },
+        ]);
+
+        this.bindGroupsManager.updateGroup("points", [
+            { binding: 1, resource: { buffer: this.bufferManager.get("nodes") } },
+            { binding: 2, resource: { buffer: this.bufferManager.get("point_to_node") } },
+        ]);
+
+        this.bindGroupsManager.updateGroup("nodes", [
+            { binding: 1, resource: { buffer: this.bufferManager.get("nodes") } },
+            { binding: 2, resource: { buffer: this.bufferManager.get("node_visibility") } },
+            { binding: 3, resource: { buffer: this.bufferManager.get("ray_nodes") } },
+        ]);
+
+        this.pipelineManager.update("render-nodes", {
+            constants: {
+                TREE_DEPTH: this.scene.tree.depth,
+                BLOCK_SIZE: QuadTree.noMaxNodesHit(this.scene.tree.depth)
+            }
+        });
+
+        this.pipelineManager.update("find-leaves", {
+            codeConstants: {
+                MAX_STACK_SIZE: 2 * this.scene.tree.depth + 1
+            },
+            constants: {
+                TREE_DEPTH: this.scene.tree.depth,
+                BLOCK_SIZE: QuadTree.noMaxNodesHit(this.scene.tree.depth)
+            }
+        });
+
+        this.workgroups.update("workgroup-per-ray", {
+            strategyArgs: [QuadTree.noMaxNodesHit(this.scene.tree.depth)],
+        });
+        const linearWorkgroup = this.workgroups.getLayout("workgroup-per-ray");
+
+        this.pipelineManager.update("bitonic-sort", {
+            codeConstants: {
+                WORKGROUP_SIZE: linearWorkgroup.workgroupSize[0],
+            },
+            constants: {
+                BLOCK_SIZE: QuadTree.noMaxNodesHit(this.scene.tree.depth)
+            }
+        });
+
+        this.canRender.nodes = true;
+    }
+
+    setMeshData() {
+        this.bufferManager.resize("indices", this.scene.indices.byteLength);
+        this.bufferManager.write("indices", this.scene.indices);
+
+        this.bufferManager.resize("node_to_triangle", this.scene.nodeToTriangles.byteLength);
+        this.bufferManager.write("node_to_triangle", this.scene.nodeToTriangles);
+
+        this.bindGroupsManager.updateGroup("render", [
+            { binding: 1, resource: { buffer: this.bufferManager.get("indices") } },
+        ]);
+
+
+        this.canRender.mesh = true;
+    }
+
+    private setupComputePipelines(): void {
         // === Pipeline Layouts ===
         const pipelineLayoutFind = this.device.createPipelineLayout({
             label: 'pipeline-layout-find',
@@ -557,39 +643,47 @@ export class Renderer {
         });
 
         // === Workgroup Strategy: 2D tiling for rays ===
-        const rayGridSize: [number, number, number] = [this.raySamples[0], this.raySamples[1], 1];
-        const tile2DGridPerRay: WorkgroupStrategy = ({ totalThreads, problemSize }) => {
-            const maxX = Math.floor(Math.sqrt(totalThreads));
-            const x = Math.min(problemSize[0], maxX);
-            const y = Math.min(problemSize[1], Math.floor(totalThreads / x));
+        const tile2DGridPerRay = (): WorkgroupStrategy =>
+            ({ totalThreads, problemSize }) => {
+                const maxX = Math.floor(Math.sqrt(totalThreads));
+                const x = Math.min(problemSize[0], maxX);
+                const y = Math.min(problemSize[1], Math.floor(totalThreads / x));
 
-            return {
-                workgroupSize: [x, y, 1],
-                // No need to override dispatchSize — let it default to problemSize / workgroupSize
+                return {
+                    workgroupSize: [x, y, 1],
+                    // No need to override dispatchSize — let it default to problemSize / workgroupSize
+                };
             };
-        };
-        this.workgroupLayoutGrid = this.computeWorkgroupLayout(rayGridSize, limits, tile2DGridPerRay);
+
+        this.workgroups.register({
+            name: "2d-grid-per-ray",
+            problemSize: [this.raySamples[0], this.raySamples[1], 1],
+            strategyFn: tile2DGridPerRay,
+            strategyArgs: [],
+        });
 
         // === Pipeline: findLeaves ===
         const stackSize = 2 * this.scene.tree.depth + 1;
+        const gridLayout = this.workgroups.getLayout("2d-grid-per-ray");
 
-        this.pipelineFindLeaves = this.device.createComputePipeline({
+        this.pipelineManager.create({
+            name: "find-leaves",
+            type: "compute",
             layout: pipelineLayoutFind,
-            compute: {
-                module: this.device.createShaderModule({
-                    code: this.applyShaderConstants(find_leaves_src, {
-                        WORKGROUP_SIZE_X: this.workgroupLayoutGrid.workgroupSize[0],
-                        WORKGROUP_SIZE_Y: this.workgroupLayoutGrid.workgroupSize[1],
-                        WORKGROUP_SIZE_Z: this.workgroupLayoutGrid.workgroupSize[2],
-                        MAX_STACK_SIZE: stackSize,
-                    }),
-                }),
-                entryPoint: "main",
-                constants: {
-                    TREE_DEPTH: this.scene.tree.depth,
-                    BLOCK_SIZE: 128,
-                },
+            code: find_leaves_src,
+            constants: {
+                TREE_DEPTH: this.scene.tree.depth,
+                BLOCK_SIZE: QuadTree.noMaxNodesHit(this.scene.tree.depth),
             },
+            codeConstants: {
+                WORKGROUP_SIZE_X: gridLayout.workgroupSize[0],
+                WORKGROUP_SIZE_Y: gridLayout.workgroupSize[1],
+                WORKGROUP_SIZE_Z: gridLayout.workgroupSize[2],
+                MAX_STACK_SIZE: stackSize,
+            },
+            compute: {
+                entryPoint: "main",
+            }
         });
 
         // === Workgroup Strategy: 1 ray per workgroup for sorting ===
@@ -603,66 +697,31 @@ export class Renderer {
                 };
             };
 
-        const rayCount = this.raySamples[0] * this.raySamples[1];
-        const sortProblemSize: [number, number, number] = [rayCount, 1, 1];
-        this.workgroupLayoutSort = this.computeWorkgroupLayout(sortProblemSize, limits, oneWorkgroupPerRay(128));
+        this.workgroups.register({
+            name: "workgroup-per-ray",
+            problemSize: [this.raySamples[0] * this.raySamples[1], 1, 1],
+            strategyFn: oneWorkgroupPerRay,
+            strategyArgs: [QuadTree.noMaxNodesHit(this.scene.tree.depth)],
+        });
+
+        const linearLayout = this.workgroups.getLayout("workgroup-per-ray");
 
         // === Pipeline: bitonicSort ===
-        this.pipelineBitonicSort = this.device.createComputePipeline({
+        this.pipelineManager.create({
+            name: "bitonic-sort",
+            type: "compute",
             layout: pipelineLayoutSort,
-            compute: {
-                module: this.device.createShaderModule({
-                    code: this.applyShaderConstants(bitonic_sort_src, {
-                        WORKGROUP_SIZE: this.workgroupLayoutSort.workgroupSize[0],
-                    }),
-                }),
-                entryPoint: "main",
-                constants: {
-                    BLOCK_SIZE: 128,
-                },
+            code: bitonic_sort_src,
+            constants: {
+                BLOCK_SIZE: QuadTree.noMaxNodesHit(this.scene.tree.depth),
             },
+            codeConstants: {
+                WORKGROUP_SIZE: linearLayout.workgroupSize[0],
+            },
+            compute: {
+                entryPoint: "main",
+            }
         });
-    }
-
-    async createDevice() {
-        this.adapter = await navigator.gpu?.requestAdapter();
-        if (!this.adapter) {
-            console.error("WebGPU: No GPU adapter found!");
-            return null;
-        }
-
-        const requiredLimits = {
-            maxStorageBufferBindingSize: this.adapter.limits.maxStorageBufferBindingSize,
-            maxStorageBuffersPerShaderStage: this.adapter.limits.maxStorageBuffersPerShaderStage
-        };
-
-
-        this.device = await this.adapter.requestDevice({ requiredLimits });
-
-        // Listen for device loss
-        this.device.lost.then((info) => {
-            console.warn(`WebGPU Device Lost: ${info.message}`);
-            this.handleDeviceLost();
-        });
-
-        return this.device;
-    }
-
-    async handleDeviceLost() {
-        console.log("Attempting to recover WebGPU device...");
-
-        // Wait a moment before retrying (avoids potential GPU crashes)
-        await new Promise(resolve => setTimeout(resolve, 100));
-
-        // Reinitialize everything
-        await this.createDevice();
-        if (!this.device) {
-            console.error("Failed to recover WebGPU device.");
-            return;
-        }
-
-        console.log("WebGPU device restored.");
-        // Recreate GPU resources here (buffers, pipelines, etc.)
     }
 
     render = () => {
@@ -688,7 +747,6 @@ export class Renderer {
         this.bufferManager.clear("ray_nodes");
         this.bufferManager.clear("node_visibility");
 
-
         const computeEncoder: GPUCommandEncoder = this.device.createCommandEncoder();
         const computePass: GPUComputePassEncoder = computeEncoder.beginComputePass();
 
@@ -706,19 +764,21 @@ export class Renderer {
     }
 
     computeFindLeaves(encoder: GPUComputePassEncoder) {
-        const dispatchX = this.workgroupLayoutGrid.dispatchSize[0];
-        const dispatchY = this.workgroupLayoutGrid.dispatchSize[1];
-        const dispatchZ = this.workgroupLayoutGrid.dispatchSize[2];
+        const gridLayout = this.workgroups.getLayout("2d-grid-per-ray");
+        const dispatchX = gridLayout.dispatchSize[0];
+        const dispatchY = gridLayout.dispatchSize[1];
+        const dispatchZ = gridLayout.dispatchSize[2];
 
-        encoder.setPipeline(this.pipelineFindLeaves);
+        encoder.setPipeline(this.pipelineManager.get<GPUComputePipeline>("find-leaves"));
         encoder.setBindGroup(0, this.bindGroupsManager.getGroup("find"));
         encoder.dispatchWorkgroups(dispatchX, dispatchY, dispatchZ);
     }
 
     computebitonicSort(encoder: GPUComputePassEncoder) {
-        const totalWorkgroups = this.workgroupLayoutSort.dispatchSize[0];
+        const linearLayout = this.workgroups.getLayout("workgroup-per-ray");
+        const totalWorkgroups = linearLayout.dispatchSize[0];
 
-        encoder.setPipeline(this.pipelineBitonicSort);
+        encoder.setPipeline(this.pipelineManager.get<GPUComputePipeline>("bitonic-sort"));
         encoder.setBindGroup(0, this.bindGroupsManager.getGroup("sort"));
         encoder.dispatchWorkgroups(totalWorkgroups);
     }
@@ -733,37 +793,37 @@ export class Renderer {
         const commandEncoder: GPUCommandEncoder = this.device.createCommandEncoder();
         const renderPass: GPURenderPassEncoder = commandEncoder.beginRenderPass(this.renderPassDescriptor);
 
-        // Render points
         const renderPointsCheckbox = <HTMLInputElement>document.getElementById("renderPoints");
         const renderPoints = renderPointsCheckbox.checked;
-        if (renderPoints) {
-            renderPass.setPipeline(this.pipelineRenderPoints);
+        if (this.canRender.points && renderPoints) {
+            // Render points
+            renderPass.setPipeline(this.pipelineManager.get<GPURenderPipeline>("render-points"));
             renderPass.setBindGroup(0, this.bindGroupsManager.getGroup("render"));
             renderPass.setBindGroup(1, this.bindGroupsManager.getGroup("points"));
             renderPass.setVertexBuffer(0, this.bufferManager.get("points"));
             renderPass.setVertexBuffer(1, this.bufferManager.get("colors"));
             const pointsToDraw = this.bufferManager.get("points").size / 16;
             renderPass.draw(pointsToDraw, 1);
-        } else {
-            renderPass.setPipeline(this.pipelineRenderWireframe);
+        } else if (this.canRender.mesh) {
+            // Render wireframe
+            renderPass.setPipeline(this.pipelineManager.get<GPURenderPipeline>("render-wireframe"));
             renderPass.setBindGroup(0, this.bindGroupsManager.getGroup("render"));
             renderPass.draw(4, this.scene.triangleCount); // 1 -> 2 -> 3 -> 1
         }
 
         // Render rays
-        renderPass.setPipeline(this.pipelineRenderRays);
+        renderPass.setPipeline(this.pipelineManager.get<GPURenderPipeline>("render-rays"));
         renderPass.setBindGroup(0, this.bindGroupsManager.getGroup("render"));
         renderPass.draw(2 * this.raySamples[0] * this.raySamples[1], 1);
 
         // Render nodes
         const showNodesCheckbox = <HTMLInputElement>document.getElementById("showNodes");
         const showNodes = showNodesCheckbox.checked;
-        if (showNodes) {
-            renderPass.setPipeline(this.pipelineRenderNodes);
+        if (this.canRender.nodes && showNodes) {
+            renderPass.setPipeline(this.pipelineManager.get<GPURenderPipeline>("render-nodes"));
             renderPass.setBindGroup(0, this.bindGroupsManager.getGroup("nodes"));
-            renderPass.draw(24, Math.pow(4, this.scene.tree.depth));
+            renderPass.draw(24, QuadTree.leafNodes(this.scene.tree.depth));
         }
-
         renderPass.end();
 
         const gizmoPassDescriptor: GPURenderPassDescriptor = {
@@ -776,34 +836,14 @@ export class Renderer {
             ],
         };
 
-        // Render gizmo
-        let vr = mat3.create();// View rotation
-        mat3.fromMat4(vr, this.scene.camera.viewMatrix);
-        let rotationMatrix = mat4.fromValues(
-            vr[0], vr[1], vr[2], 0,
-            vr[3], vr[4], vr[5], 0,
-            vr[6], vr[7], vr[8], 0,
-            0, 0, 0, 1);
+        const { gmodel, gview, gprojection } = this.scene.gizmo.getModelViewProjection(this.scene.camera);
 
-        let gizmoModel = mat4.create();
-        mat4.scale(gizmoModel, gizmoModel, vec3.fromValues(0.1, 0.1, 0.1));
-        mat4.multiply(gizmoModel, gizmoModel, rotationMatrix);
-        let aspectRatio = this.scene.camera.aspect;
-        gizmoModel[12] = aspectRatio - 0.15;
-        gizmoModel[13] = 0.85;
-
-        let gizmoView = mat4.create();
-        mat4.identity(gizmoView);
-
-        let gizmoProjection = mat4.create();
-        mat4.ortho(gizmoProjection, 0, aspectRatio, 0, 1, -2, 1);
-
-        this.bufferManager.write("gizmo_uniforms", new Float32Array(gizmoModel), 0);
-        this.bufferManager.write("gizmo_uniforms", new Float32Array(gizmoView), 64);
-        this.bufferManager.write("gizmo_uniforms", new Float32Array(gizmoProjection), 128);
+        this.bufferManager.write("gizmo_uniforms", gmodel, 0);
+        this.bufferManager.write("gizmo_uniforms", gview, 64);
+        this.bufferManager.write("gizmo_uniforms", gprojection, 128);
 
         const gizmoPass: GPURenderPassEncoder = commandEncoder.beginRenderPass(gizmoPassDescriptor);
-        gizmoPass.setPipeline(this.pipelineRenderGizmo);
+        gizmoPass.setPipeline(this.pipelineManager.get<GPURenderPipeline>("render-gizmo"));
         gizmoPass.setBindGroup(0, this.bindGroupsManager.getGroup("gizmo"));
         gizmoPass.setVertexBuffer(0, this.bufferManager.get("gizmo_vertices"));
         gizmoPass.draw(6);
@@ -839,7 +879,7 @@ export class Renderer {
 
             // Recreate buffers
             this.bufferManager.resize("rays", this.raySamples[0] * this.raySamples[1] * 2 * 4 * 4);
-            this.bufferManager.resize("ray_nodes", this.raySamples[0] * this.raySamples[1] * 128 * 4);
+            this.bufferManager.resize("ray_nodes", this.raySamples[0] * this.raySamples[1] * (2 ** (this.scene.tree.depth + 1)) * 4);
             this.bufferManager.resize("ray_node_counts", this.raySamples[0] * this.raySamples[1] * 4);
 
             this.bindGroupsManager.updateGroup("find", [
@@ -858,55 +898,33 @@ export class Renderer {
                 { binding: 5, resource: { buffer: this.bufferManager.get("rays") } }
             ]);
 
+            this.workgroups.update("2d-grid-per-ray", {
+                problemSize: [this.raySamples[0], this.raySamples[1], 1],
+            });
+            this.workgroups.update("workgroup-per-ray", {
+                problemSize: [this.raySamples[0] * this.raySamples[1], 1, 1],
+            });
+            const linearLayout = this.workgroups.getLayout("workgroup-per-ray");
+            const gridLayout = this.workgroups.getLayout("2d-grid-per-ray");
+
+            this.pipelineManager.update("find-leaves", {
+                codeConstants: {
+                    WORKGROUP_SIZE_X: gridLayout.workgroupSize[0],
+                    WORKGROUP_SIZE_Y: gridLayout.workgroupSize[1],
+                    WORKGROUP_SIZE_Z: gridLayout.workgroupSize[2],
+                }
+            });
+
+            this.pipelineManager.update("bitonic-sort", {
+                codeConstants: {
+                    WORKGROUP_SIZE: linearLayout.workgroupSize[0],
+                },
+            });
+
             this.setupComputePipelines();
         }
         this.runComputePass();
     }
-
-    applyShaderConstants(shaderSrc: string, constants: Record<string, string | number>): string {
-        let result = shaderSrc;
-        for (const [key, value] of Object.entries(constants)) {
-            const placeholder = new RegExp(`__${key}__`, 'g');
-            result = result.replace(placeholder, value.toString());
-        }
-        return result;
-    }
-
-    computeWorkgroupLayout(
-        problemSize: [number, number, number],
-        limits: WorkgroupLimits,
-        strategy: WorkgroupStrategy
-    ): WorkgroupLayout {
-        const result = strategy({
-            totalThreads: limits.maxTotalThreads,
-            problemSize,
-        });
-
-        const [workDimX, workDimY, workDimZ] = result.workgroupSize;
-        const totalThreads = workDimX * workDimY * workDimZ;
-
-        // Validate limits
-        if (workDimX > limits.maxSizeX)
-            throw new Error(`workDimX ${workDimX} exceeds device limit ${limits.maxSizeX}`);
-        if (workDimY > limits.maxSizeY)
-            throw new Error(`workDimY ${workDimY} exceeds device limit ${limits.maxSizeY}`);
-        if (workDimZ > limits.maxSizeZ)
-            throw new Error(`workDimZ ${workDimZ} exceeds device limit ${limits.maxSizeZ}`);
-        if (totalThreads > limits.maxTotalThreads)
-            throw new Error(`Total threads (${totalThreads}) exceed max allowed (${limits.maxTotalThreads})`);
-
-        const dispatchSize = result.dispatchSize ?? [
-            Math.ceil(problemSize[0] / workDimX),
-            Math.ceil(problemSize[1] / workDimY),
-            Math.ceil(problemSize[2] / workDimZ),
-        ];
-
-        return {
-            workgroupSize: [workDimX, workDimY, workDimZ],
-            dispatchSize,
-        };
-    }
-
 
     calculateFPS(currTime: number) {
         this.frameCount++;
