@@ -34,8 +34,8 @@ struct QuadTreeNode {
 // @group(0) @binding(4) var<storage, read_write> pointVisibilityBuffer: array<atomic<u32>>;
 @group(0) @binding(0) var<storage, read> nodeBuffer: array<QuadTreeNode>;
 @group(0) @binding(1) var<storage, read_write> rayBuffer: array<Ray>;
-@group(0) @binding(2) var<storage, read_write> rayNodeBuffer: array<u32>;
-@group(0) @binding(3) var<storage, read_write> rayNodeCounts: array<u32>;
+@group(0) @binding(2) var<storage, read_write> rayNodeCounts: array<u32>;
+@group(0) @binding(3) var<storage, read_write> rayNodeBuffer: array<u32>;
 @group(0) @binding(4) var<storage, read_write> nodeVisibilityBuffer: array<atomic<u32>>;
 
 @group(0) @binding(5) var<uniform> uniforms: compUniforms;

@@ -10,6 +10,10 @@ import nodes_src from "./shaders/nodes.wgsl"
 import { Scene } from "./scene";
 import { mat3, mat4, vec3 } from "gl-matrix";
 import { WorkgroupLayout, WorkgroupLimits, WorkgroupStrategy } from "./types/types"
+import { BufferManager } from "./BufferManager"
+import { QuadTree } from "./optimization"
+import { data } from "jquery"
+import { BindGroupManager } from "./BindGroupsManager"
 
 
 export class Renderer {
@@ -37,43 +41,11 @@ export class Renderer {
     pipelineRenderGizmo: GPURenderPipeline;
     pipelineRenderNodes: GPURenderPipeline;
 
-    // Bind groups
-    bind_group_find: GPUBindGroup;
-    bind_group_sort: GPUBindGroup;
-
-    bind_group_render: GPUBindGroup;
-    bind_group_gizmo: GPUBindGroup;
-    bind_group_points: GPUBindGroup;
-    bind_group_nodes: GPUBindGroup;
-
-    bind_group_layout_find: GPUBindGroupLayout;
-    bind_group_layout_sort: GPUBindGroupLayout;
-
-    bind_group_layout_render: GPUBindGroupLayout;
-    bind_group_layout_gizmo: GPUBindGroupLayout;
-    bind_group_layout_points: GPUBindGroupLayout;
-    bind_group_layout_nodes: GPUBindGroupLayout;
-
     raySamples: Uint32Array = new Uint32Array([8, 8]);
 
-    // Buffers
-    compUniformBuffer: GPUBuffer;
-    vsUniformBuffer: GPUBuffer;
-    pointBuffer: GPUBuffer;
-    colorBuffer: GPUBuffer;
-    indicesBuffer: GPUBuffer;
-    pointVisibilityBuffer: GPUBuffer;
-    nodeVisibilityBuffer: GPUBuffer;
-    rayBuffer: GPUBuffer;
-    gizmoVertexBuffer: GPUBuffer;
-    gizmoUniformsBuffer: GPUBuffer;
-    renderModeBuffer: GPUBuffer;
-    nodesBuffer: GPUBuffer;
-    pointToNodeBuffer: GPUBuffer;
-    nodeToTriangleBuffer: GPUBuffer;
-    closestHitBuffer: GPUBuffer;
-    rayToNodeBuffer: GPUBuffer;
-    rayNodeCountsBuffer: GPUBuffer;
+    // Managers
+    bufferManager: BufferManager;
+    bindGroupsManager: BindGroupManager;
 
     // Others
     workgroupLayoutGrid: WorkgroupLayout;
@@ -107,368 +79,245 @@ export class Renderer {
             alphaMode: "opaque"
         });
 
-        const pointBufferSize = Math.min(this.scene.points.byteLength, this.device.limits.maxStorageBufferBindingSize);
-        this.pointBuffer = this.device.createBuffer({
-            label: 'buffer-points',
-            size: pointBufferSize,
-            usage: GPUBufferUsage.VERTEX | GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
-        });
-        this.device.queue.writeBuffer(this.pointBuffer, 0, this.scene.points, 0, pointBufferSize / Float32Array.BYTES_PER_ELEMENT);
+        this.bufferManager = new BufferManager(this.device);
+        this.bufferManager.initBuffers([
+            {
+                name: "points",
+                size: this.scene.points.byteLength,
+                usage: GPUBufferUsage.VERTEX | GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+                data: this.scene.points
+            },
+            {
+                name: "colors",
+                size: this.scene.colors.byteLength,
+                usage: GPUBufferUsage.VERTEX | GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+                data: this.scene.colors
+            },
+            {
+                name: "indices",
+                size: this.scene.indices.byteLength,
+                usage: GPUBufferUsage.INDEX | GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+                data: this.scene.indices
+            },
+            {
+                name: "point_visibility",
+                size: Math.ceil(this.scene.points.length / 3 / 32) * Uint32Array.BYTES_PER_ELEMENT,
+                usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+            },
+            {
+                name: "node_visibility",
+                size: Math.pow(4, this.scene.tree.depth) / 32 * Uint32Array.BYTES_PER_ELEMENT,
+                usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+            },
+            {
+                name: "comp_uniforms",
+                size: 48,
+                usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+            },
+            {
+                name: "vs_uniforms",
+                size: 192,
+                usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+            },
+            {
+                name: "rays",
+                size: this.raySamples[0] * this.raySamples[1] * 2 * 4 * 4,
+                usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST | GPUBufferUsage.VERTEX,
+            },
+            {
+                name: "gizmo_vertices",
+                size: this.scene.gizmo.byteLength,
+                usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
+                data: this.scene.gizmo
+            },
+            {
+                name: "gizmo_uniforms",
+                size: 192,
+                usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+            },
+            {
+                name: "render_mode",
+                size: 4,
+                usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+            },
+            {
+                name: "nodes",
+                size: QuadTree.totalNodes(this.scene.tree.depth) * QuadTree.BYTES_PER_NODE * 4,
+                usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+                data: this.scene.tree.flatten()
+            },
+            {
+                name: "point_to_node",
+                size: this.scene.tree.root.pointCount * 4,
+                usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+                data: this.scene.tree.mapPointsToNodes()
+            },
+            {
+                name: "node_to_triangle",
+                size: this.scene.nodeToTriangles.byteLength,
+                usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+                data: this.scene.nodeToTriangles
+            },
+            {
+                name: "closest_hit",
+                size: 16,
+                usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC,
+                data: new Uint32Array([0x7F7FFFFF, 0, 0, 0])
+            },
+            {
+                name: "ray_nodes",
+                size: this.raySamples[0] * this.raySamples[1] * 128 * 4,
+                usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC,
+            },
+            {
+                name: "ray_node_counts",
+                size: this.raySamples[0] * this.raySamples[1] * 4,
+                usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC,
+            },
+        ]);
 
-        const colorBufferSize = Math.min(this.scene.colors.byteLength, this.device.limits.maxStorageBufferBindingSize);
-        this.colorBuffer = this.device.createBuffer({
-            label: 'buffer-colors',
-            size: colorBufferSize,
-            usage: GPUBufferUsage.VERTEX | GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
-        });
-        this.device.queue.writeBuffer(this.colorBuffer, 0, this.scene.colors, 0, colorBufferSize / Float32Array.BYTES_PER_ELEMENT);
-
-        const indicesBufferSize = Math.min(this.scene.indices.byteLength, this.device.limits.maxStorageBufferBindingSize);
-        this.indicesBuffer = this.device.createBuffer({
-            label: 'buffer-index',
-            size: indicesBufferSize,
-            usage: GPUBufferUsage.INDEX | GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
-        });
-        this.device.queue.writeBuffer(this.indicesBuffer, 0, this.scene.indices, 0, indicesBufferSize / Uint32Array.BYTES_PER_ELEMENT);
-
-        const pointVisibilityBufferSize = Math.ceil(this.scene.points.length / 3 / 32) * Uint32Array.BYTES_PER_ELEMENT;
-        this.pointVisibilityBuffer = this.device.createBuffer({
-            label: 'buffer-visibility-points',
-            size: pointVisibilityBufferSize,
-            usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST | GPUBufferUsage.VERTEX,
-        });
-
-        const nodeVisibilityBufferSize = (Math.pow(4, this.scene.tree.depth) / 32) * Uint32Array.BYTES_PER_ELEMENT;
-        this.nodeVisibilityBuffer = this.device.createBuffer({
-            label: 'buffer-visibility-nodes',
-            size: nodeVisibilityBufferSize,
-            usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST | GPUBufferUsage.VERTEX,
-        });
-
-        this.compUniformBuffer = this.device.createBuffer({
-            label: 'uniform-comp',
-            size: 48,
-            usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-        });
-
-        this.vsUniformBuffer = this.device.createBuffer({
-            label: 'uniform-vs',
-            size: 192,
-            usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-        });
-
-        this.rayBuffer = this.device.createBuffer({
-            label: 'buffer-ray',
-            size: this.raySamples[0] * this.raySamples[1] * 2 * 4 * 4,
-            usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST | GPUBufferUsage.VERTEX,
-        });
-
-        this.gizmoVertexBuffer = this.device.createBuffer({
-            label: 'buffer-gizmo-vertex',
-            size: this.scene.gizmo.byteLength,
-            usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
-        });
-        this.device.queue.writeBuffer(this.gizmoVertexBuffer, 0, this.scene.gizmo);
-
-        this.gizmoUniformsBuffer = this.device.createBuffer({
-            label: 'buffer-gizmo-uniforms',
-            size: 192,
-            usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-        });
-
-        this.renderModeBuffer = this.device.createBuffer({
-            label: 'buffer-rendermode',
-            size: 4, // 1 x u32
-            usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
-        });
-
-        const nodeBuffer = this.scene.tree.flatten();
-        const pointToNodeBufferData = this.scene.tree.mapPointsToNodes();
-        this.nodesBuffer = this.device.createBuffer({
-            label: 'buffer-nodes',
-            size: nodeBuffer.byteLength,
-            usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
-        });
-        this.device.queue.writeBuffer(this.nodesBuffer, 0, nodeBuffer);
-
-        this.pointToNodeBuffer = this.device.createBuffer({
-            label: 'buffer-points-to-nodes',
-            size: pointToNodeBufferData.byteLength,
-            usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
-        });
-        this.device.queue.writeBuffer(this.pointToNodeBuffer, 0, pointToNodeBufferData);
-
-        this.nodeToTriangleBuffer = this.device.createBuffer({
-            label: 'buffer-nodes-to-triangles',
-            size: this.scene.nodeToTriangles.byteLength,
-            usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
-        });
-        this.device.queue.writeBuffer(this.nodeToTriangleBuffer, 0, this.scene.nodeToTriangles);
-
-        this.closestHitBuffer = this.device.createBuffer({
-            size: 16,
-            usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC,
-        });
-        const maxFloatData = new Uint32Array([0x7F7FFFFF, 0, 0, 0]); // IEEE-754 bit pattern for f32::MAX
-        this.device.queue.writeBuffer(this.closestHitBuffer, 0, maxFloatData);
-
-        this.rayToNodeBuffer = this.device.createBuffer({
-            size: this.raySamples[0] * this.raySamples[1] * 128 * 4,
-            usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC,
-            mappedAtCreation: false,
-        });
-
-        this.rayNodeCountsBuffer = this.device.createBuffer({
-            size: this.raySamples[0] * this.raySamples[1] * 4,
-            usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC,
-            mappedAtCreation: false,
-        }); // TODO: Update the size after ray samples change!
-
-        this.bind_group_layout_find = this.device.createBindGroupLayout({
-            label: 'layout-find-leaves',
+        this.bindGroupsManager = new BindGroupManager(this.device);
+        this.bindGroupsManager.createLayout({
+            name: "find",
             entries: [
-                {
-                    binding: 0,
-                    visibility: GPUShaderStage.COMPUTE,
-                    buffer: { type: "read-only-storage" }
-                },
-                {
-                    binding: 1,
-                    visibility: GPUShaderStage.COMPUTE,
-                    buffer: { type: "storage" }
-                },
-                {
-                    binding: 2,
-                    visibility: GPUShaderStage.COMPUTE,
-                    buffer: { type: "storage" }
-                },
-                {
-                    binding: 3,
-                    visibility: GPUShaderStage.COMPUTE,
-                    buffer: { type: "storage" }
-                },
-                {
-                    binding: 4,
-                    visibility: GPUShaderStage.COMPUTE,
-                    buffer: { type: "storage" }
-                },
-                {
-                    binding: 5,
-                    visibility: GPUShaderStage.COMPUTE,
-                    buffer: { type: "uniform" }
-                },
-
+                { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
+                { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
+                { binding: 2, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
+                { binding: 3, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
+                { binding: 4, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
+                { binding: 5, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform" } },
             ]
         });
 
-        this.bind_group_layout_sort = this.device.createBindGroupLayout({
-            label: 'layout-sort',
+        this.bindGroupsManager.createLayout({
+            name: "sort",
             entries: [
-                {
-                    binding: 0,
-                    visibility: GPUShaderStage.COMPUTE,
-                    buffer: { type: "read-only-storage" }
-                },
-                {
-                    binding: 1,
-                    visibility: GPUShaderStage.COMPUTE,
-                    buffer: { type: "read-only-storage" }
-                },
-                {
-                    binding: 2,
-                    visibility: GPUShaderStage.COMPUTE,
-                    buffer: { type: "read-only-storage" }
-                },
-                {
-                    binding: 3,
-                    visibility: GPUShaderStage.COMPUTE,
-                    buffer: { type: "storage" }
-                },
-                {
-                    binding: 4,
-                    visibility: GPUShaderStage.COMPUTE,
-                    buffer: { type: "storage" }
-                },
-                {
-                    binding: 5,
-                    visibility: GPUShaderStage.COMPUTE,
-                    buffer: { type: "uniform" }
-                },
-
+                { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
+                { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
+                { binding: 2, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
+                { binding: 3, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
+                { binding: 4, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform" } },
             ]
         });
 
-        this.bind_group_layout_render = this.device.createBindGroupLayout({
-            label: 'render_layout',
+        this.bindGroupsManager.createLayout({
+            name: "render",
             entries: [
-                {
-                    binding: 0,
-                    visibility: GPUShaderStage.VERTEX,
-                    buffer: { type: "read-only-storage" }
-                },
-                {
-                    binding: 1,
-                    visibility: GPUShaderStage.VERTEX,
-                    buffer: { type: "read-only-storage" }
-                },
-                {
-                    binding: 2,
-                    visibility: GPUShaderStage.VERTEX,
-                    buffer: { type: "read-only-storage" }
-                },
-                {
-                    binding: 4,
-                    visibility: GPUShaderStage.VERTEX,
-                    buffer: { type: "uniform" }
-                },
-                {
-                    binding: 5,
-                    visibility: GPUShaderStage.VERTEX,
-                    buffer: { type: "read-only-storage" }
-                },
+                { binding: 0, visibility: GPUShaderStage.VERTEX, buffer: { type: "read-only-storage" } },
+                { binding: 1, visibility: GPUShaderStage.VERTEX, buffer: { type: "read-only-storage" } },
+                { binding: 2, visibility: GPUShaderStage.VERTEX, buffer: { type: "read-only-storage" } },
+                { binding: 4, visibility: GPUShaderStage.VERTEX, buffer: { type: "uniform" } },
+                { binding: 5, visibility: GPUShaderStage.VERTEX, buffer: { type: "read-only-storage" } },
             ]
         });
 
-        this.bind_group_layout_gizmo = this.device.createBindGroupLayout({
-            label: 'gizmo_layout',
+        this.bindGroupsManager.createLayout({
+            name: "gizmo",
             entries: [
-                {
-                    binding: 0,
-                    visibility: GPUShaderStage.VERTEX,
-                    buffer: { type: "uniform" },
-                },
-            ],
-        });
-
-        this.bind_group_layout_points = this.device.createBindGroupLayout({
-            label: 'points_layout',
-            entries: [
-                {
-                    binding: 0,
-                    visibility: GPUShaderStage.VERTEX,
-                    buffer: { type: "uniform" },
-                },
-                {
-                    binding: 1,
-                    visibility: GPUShaderStage.VERTEX,
-                    buffer: { type: "read-only-storage" },
-                },
-                {
-                    binding: 2,
-                    visibility: GPUShaderStage.VERTEX,
-                    buffer: { type: "read-only-storage" },
-                }
+                { binding: 0, visibility: GPUShaderStage.VERTEX, buffer: { type: "uniform" } },
             ]
         });
 
-        this.bind_group_layout_nodes = this.device.createBindGroupLayout({
-            label: 'layout-nodes',
+        this.bindGroupsManager.createLayout({
+            name: "points",
             entries: [
-                {
-                    binding: 0,
-                    visibility: GPUShaderStage.VERTEX,
-                    buffer: { type: "uniform" }
-                },
-                {
-                    binding: 1,
-                    visibility: GPUShaderStage.VERTEX,
-                    buffer: { type: "read-only-storage" },
-                },
-                {
-                    binding: 2,
-                    visibility: GPUShaderStage.VERTEX,
-                    buffer: { type: "read-only-storage" }
-                },
-                {
-                    binding: 3,
-                    visibility: GPUShaderStage.VERTEX,
-                    buffer: { type: "read-only-storage" }
-                },
+                { binding: 0, visibility: GPUShaderStage.VERTEX, buffer: { type: "uniform" } },
+                { binding: 1, visibility: GPUShaderStage.VERTEX, buffer: { type: "read-only-storage" } },
+                { binding: 2, visibility: GPUShaderStage.VERTEX, buffer: { type: "read-only-storage" } },
             ]
         });
 
-        this.bind_group_find = this.device.createBindGroup({
-            label: 'bind-group-find',
-            layout: this.bind_group_layout_find,
+        this.bindGroupsManager.createLayout({
+            name: "nodes",
             entries: [
-                { binding: 0, resource: { buffer: this.nodesBuffer } },
-                { binding: 1, resource: { buffer: this.rayBuffer } },
-                { binding: 2, resource: { buffer: this.rayToNodeBuffer } },
-                { binding: 3, resource: { buffer: this.rayNodeCountsBuffer } },
-                { binding: 4, resource: { buffer: this.nodeVisibilityBuffer } },
-                { binding: 5, resource: { buffer: this.compUniformBuffer } },
+                { binding: 0, visibility: GPUShaderStage.VERTEX, buffer: { type: "uniform" } },
+                { binding: 1, visibility: GPUShaderStage.VERTEX, buffer: { type: "read-only-storage" } },
+                { binding: 2, visibility: GPUShaderStage.VERTEX, buffer: { type: "read-only-storage" } },
+                { binding: 3, visibility: GPUShaderStage.VERTEX, buffer: { type: "read-only-storage" } },
             ]
         });
 
-        this.bind_group_sort = this.device.createBindGroup({
-            label: 'bind-group-sort',
-            layout: this.bind_group_layout_sort,
+        this.bindGroupsManager.createGroup({
+            name: "find",
+            layoutName: "find",
             entries: [
-                { binding: 0, resource: { buffer: this.nodesBuffer } },
-                { binding: 1, resource: { buffer: this.rayBuffer } },
-                { binding: 2, resource: { buffer: this.rayNodeCountsBuffer } },
-                { binding: 3, resource: { buffer: this.rayToNodeBuffer } },
-                { binding: 4, resource: { buffer: this.compUniformBuffer } },
+                { binding: 0, resource: { buffer: this.bufferManager.get("nodes") } },
+                { binding: 1, resource: { buffer: this.bufferManager.get("rays") } },
+                { binding: 2, resource: { buffer: this.bufferManager.get("ray_node_counts") } },
+                { binding: 3, resource: { buffer: this.bufferManager.get("ray_nodes") } },
+                { binding: 4, resource: { buffer: this.bufferManager.get("node_visibility") } },
+                { binding: 5, resource: { buffer: this.bufferManager.get("comp_uniforms") } },
             ]
         });
 
-
-        this.bind_group_render = this.device.createBindGroup({
-            label: 'render_bind_group',
-            layout: this.bind_group_layout_render,
+        this.bindGroupsManager.createGroup({
+            name: "sort",
+            layoutName: "sort",
             entries: [
-                { binding: 0, resource: { buffer: this.pointBuffer } },
-                { binding: 1, resource: { buffer: this.indicesBuffer } }, // Check if this is needed, as the vertex/indices buffer is not used in the point and ray shader
-                { binding: 2, resource: { buffer: this.pointVisibilityBuffer } },
-                { binding: 4, resource: { buffer: this.vsUniformBuffer } },
-                { binding: 5, resource: { buffer: this.rayBuffer } }
+                { binding: 0, resource: { buffer: this.bufferManager.get("nodes") } },
+                { binding: 1, resource: { buffer: this.bufferManager.get("rays") } },
+                { binding: 2, resource: { buffer: this.bufferManager.get("ray_node_counts") } },
+                { binding: 3, resource: { buffer: this.bufferManager.get("ray_nodes") } },
+                { binding: 4, resource: { buffer: this.bufferManager.get("comp_uniforms") } },
             ]
         });
 
-        this.bind_group_gizmo = this.device.createBindGroup({
-            layout: this.bind_group_layout_gizmo,
+        this.bindGroupsManager.createGroup({
+            name: "render",
+            layoutName: "render",
             entries: [
-                {
-                    binding: 0,
-                    resource: { buffer: this.gizmoUniformsBuffer },
-                },
-            ],
-        });
-
-        this.bind_group_points = this.device.createBindGroup({
-            layout: this.bind_group_layout_points,
-            entries: [
-                { binding: 0, resource: { buffer: this.renderModeBuffer } },
-                { binding: 1, resource: { buffer: this.nodesBuffer } },
-                { binding: 2, resource: { buffer: this.pointToNodeBuffer } }
+                { binding: 0, resource: { buffer: this.bufferManager.get("points") } },
+                { binding: 1, resource: { buffer: this.bufferManager.get("indices") } },
+                { binding: 2, resource: { buffer: this.bufferManager.get("point_visibility") } },
+                { binding: 4, resource: { buffer: this.bufferManager.get("vs_uniforms") } },
+                { binding: 5, resource: { buffer: this.bufferManager.get("rays") } }
             ]
         });
 
-        this.bind_group_nodes = this.device.createBindGroup({
-            layout: this.bind_group_layout_nodes,
+        this.bindGroupsManager.createGroup({
+            name: "gizmo",
+            layoutName: "gizmo",
             entries: [
-                { binding: 0, resource: { buffer: this.vsUniformBuffer } },
-                { binding: 1, resource: { buffer: this.nodesBuffer } },
-                { binding: 2, resource: { buffer: this.nodeVisibilityBuffer } },
-                { binding: 3, resource: { buffer: this.rayToNodeBuffer } }
+                { binding: 0, resource: { buffer: this.bufferManager.get("gizmo_uniforms") } },
+            ]
+        });
+
+        this.bindGroupsManager.createGroup({
+            name: "points",
+            layoutName: "points",
+            entries: [
+                { binding: 0, resource: { buffer: this.bufferManager.get("render_mode") } },
+                { binding: 1, resource: { buffer: this.bufferManager.get("nodes") } },
+                { binding: 2, resource: { buffer: this.bufferManager.get("point_to_node") } }
+            ]
+        });
+
+        this.bindGroupsManager.createGroup({
+            name: "nodes",
+            layoutName: "nodes",
+            entries: [
+                { binding: 0, resource: { buffer: this.bufferManager.get("vs_uniforms") } },
+                { binding: 1, resource: { buffer: this.bufferManager.get("nodes") } },
+                { binding: 2, resource: { buffer: this.bufferManager.get("node_visibility") } },
+                { binding: 3, resource: { buffer: this.bufferManager.get("ray_nodes") } }
             ]
         });
 
         const pipeline_layout_render = this.device.createPipelineLayout({
             label: 'pipeline-layout-render',
-            bindGroupLayouts: [this.bind_group_layout_render]
+            bindGroupLayouts: this.bindGroupsManager.getLayouts(["render"])
         });
         const pipeline_layout_points = this.device.createPipelineLayout({
             label: 'pipeline-layout-points',
-            bindGroupLayouts: [this.bind_group_layout_render, this.bind_group_layout_points]
+            bindGroupLayouts: this.bindGroupsManager.getLayouts(["render", "points"])
         });
         const pipeline_layout_gizmo = this.device.createPipelineLayout({
             label: 'pipeline-layout-gizmo',
-            bindGroupLayouts: [this.bind_group_layout_gizmo]
+            bindGroupLayouts: this.bindGroupsManager.getLayouts(["gizmo"])
         });
         const pipeline_layout_nodes = this.device.createPipelineLayout({
             label: 'pipeline-layout-nodes',
-            bindGroupLayouts: [this.bind_group_layout_nodes]
+            bindGroupLayouts: this.bindGroupsManager.getLayouts(["nodes"])
         });
 
         this.setupComputePipelines();
@@ -699,12 +548,12 @@ export class Renderer {
         // === Pipeline Layouts ===
         const pipelineLayoutFind = this.device.createPipelineLayout({
             label: 'pipeline-layout-find',
-            bindGroupLayouts: [this.bind_group_layout_find],
+            bindGroupLayouts: this.bindGroupsManager.getLayouts(["find"]),
         });
 
         const pipelineLayoutSort = this.device.createPipelineLayout({
             label: 'pipeline-layout-sort',
-            bindGroupLayouts: [this.bind_group_layout_sort],
+            bindGroupLayouts: this.bindGroupsManager.getLayouts(["sort"]),
         });
 
         // === Workgroup Strategy: 2D tiling for rays ===
@@ -713,7 +562,7 @@ export class Renderer {
             const maxX = Math.floor(Math.sqrt(totalThreads));
             const x = Math.min(problemSize[0], maxX);
             const y = Math.min(problemSize[1], Math.floor(totalThreads / x));
-        
+
             return {
                 workgroupSize: [x, y, 1],
                 // No need to override dispatchSize — let it default to problemSize / workgroupSize
@@ -836,10 +685,9 @@ export class Renderer {
     }
 
     async runComputePass() {
-        const resetBuffer = (buffer: GPUBuffer) =>
-            this.device.queue.writeBuffer(buffer, 0, new Uint32Array(buffer.size / 4));
-        resetBuffer(this.rayToNodeBuffer);
-        resetBuffer(this.nodeVisibilityBuffer);
+        this.bufferManager.clear("ray_nodes");
+        this.bufferManager.clear("node_visibility");
+
 
         const computeEncoder: GPUCommandEncoder = this.device.createCommandEncoder();
         const computePass: GPUComputePassEncoder = computeEncoder.beginComputePass();
@@ -863,7 +711,7 @@ export class Renderer {
         const dispatchZ = this.workgroupLayoutGrid.dispatchSize[2];
 
         encoder.setPipeline(this.pipelineFindLeaves);
-        encoder.setBindGroup(0, this.bind_group_find);
+        encoder.setBindGroup(0, this.bindGroupsManager.getGroup("find"));
         encoder.dispatchWorkgroups(dispatchX, dispatchY, dispatchZ);
     }
 
@@ -871,13 +719,13 @@ export class Renderer {
         const totalWorkgroups = this.workgroupLayoutSort.dispatchSize[0];
 
         encoder.setPipeline(this.pipelineBitonicSort);
-        encoder.setBindGroup(0, this.bind_group_sort);
+        encoder.setBindGroup(0, this.bindGroupsManager.getGroup("sort"));
         encoder.dispatchWorkgroups(totalWorkgroups);
     }
 
     runRenderPass() {
-        this.device.queue.writeBuffer(this.vsUniformBuffer, 64, new Float32Array(this.scene.camera.viewMatrix));
-        this.device.queue.writeBuffer(this.vsUniformBuffer, 128, new Float32Array(this.scene.camera.projectionMatrix));
+        this.device.queue.writeBuffer(this.bufferManager.get("vs_uniforms"), 64, new Float32Array(this.scene.camera.viewMatrix));
+        this.device.queue.writeBuffer(this.bufferManager.get("vs_uniforms"), 128, new Float32Array(this.scene.camera.projectionMatrix));
 
         const colorTexture = this.context.getCurrentTexture();
         this.renderPassDescriptor.colorAttachments[0].view = colorTexture.createView();
@@ -890,21 +738,21 @@ export class Renderer {
         const renderPoints = renderPointsCheckbox.checked;
         if (renderPoints) {
             renderPass.setPipeline(this.pipelineRenderPoints);
-            renderPass.setBindGroup(0, this.bind_group_render);
-            renderPass.setBindGroup(1, this.bind_group_points);
-            renderPass.setVertexBuffer(0, this.pointBuffer);
-            renderPass.setVertexBuffer(1, this.colorBuffer);
-            const pointsToDraw = this.pointBuffer.size / 16;
+            renderPass.setBindGroup(0, this.bindGroupsManager.getGroup("render"));
+            renderPass.setBindGroup(1, this.bindGroupsManager.getGroup("points"));
+            renderPass.setVertexBuffer(0, this.bufferManager.get("points"));
+            renderPass.setVertexBuffer(1, this.bufferManager.get("colors"));
+            const pointsToDraw = this.bufferManager.get("points").size / 16;
             renderPass.draw(pointsToDraw, 1);
         } else {
             renderPass.setPipeline(this.pipelineRenderWireframe);
-            renderPass.setBindGroup(0, this.bind_group_render);
+            renderPass.setBindGroup(0, this.bindGroupsManager.getGroup("render"));
             renderPass.draw(4, this.scene.triangleCount); // 1 -> 2 -> 3 -> 1
         }
 
         // Render rays
         renderPass.setPipeline(this.pipelineRenderRays);
-        renderPass.setBindGroup(0, this.bind_group_render);
+        renderPass.setBindGroup(0, this.bindGroupsManager.getGroup("render"));
         renderPass.draw(2 * this.raySamples[0] * this.raySamples[1], 1);
 
         // Render nodes
@@ -912,7 +760,7 @@ export class Renderer {
         const showNodes = showNodesCheckbox.checked;
         if (showNodes) {
             renderPass.setPipeline(this.pipelineRenderNodes);
-            renderPass.setBindGroup(0, this.bind_group_nodes);
+            renderPass.setBindGroup(0, this.bindGroupsManager.getGroup("nodes"));
             renderPass.draw(24, Math.pow(4, this.scene.tree.depth));
         }
 
@@ -950,14 +798,14 @@ export class Renderer {
         let gizmoProjection = mat4.create();
         mat4.ortho(gizmoProjection, 0, aspectRatio, 0, 1, -2, 1);
 
-        this.device.queue.writeBuffer(this.gizmoUniformsBuffer, 0, new Float32Array(gizmoModel));
-        this.device.queue.writeBuffer(this.gizmoUniformsBuffer, 64, new Float32Array(gizmoView));
-        this.device.queue.writeBuffer(this.gizmoUniformsBuffer, 128, new Float32Array(gizmoProjection));
+        this.bufferManager.write("gizmo_uniforms", new Float32Array(gizmoModel), 0);
+        this.bufferManager.write("gizmo_uniforms", new Float32Array(gizmoView), 64);
+        this.bufferManager.write("gizmo_uniforms", new Float32Array(gizmoProjection), 128);
 
         const gizmoPass: GPURenderPassEncoder = commandEncoder.beginRenderPass(gizmoPassDescriptor);
         gizmoPass.setPipeline(this.pipelineRenderGizmo);
-        gizmoPass.setBindGroup(0, this.bind_group_gizmo);
-        gizmoPass.setVertexBuffer(0, this.gizmoVertexBuffer);
+        gizmoPass.setBindGroup(0, this.bindGroupsManager.getGroup("gizmo"));
+        gizmoPass.setVertexBuffer(0, this.bufferManager.get("gizmo_vertices"));
         gizmoPass.draw(6);
         gizmoPass.end();
 
@@ -977,76 +825,39 @@ export class Renderer {
         const endPhi = parseFloat((<HTMLInputElement>document.getElementById("endPhi")).value);
         const renderMode = parseFloat((<HTMLInputElement>document.getElementById("renderMode")).value);
 
-        this.device.queue.writeBuffer(this.compUniformBuffer, 0, new Float32Array([
+        this.device.queue.writeBuffer(this.bufferManager.get("comp_uniforms"), 0, new Float32Array([
             originX, originY, originZ, // 12
             startTheta, endTheta, startPhi, endPhi // 32
         ]));
-        this.device.queue.writeBuffer(this.compUniformBuffer, 32, new Uint32Array([
+        this.device.queue.writeBuffer(this.bufferManager.get("comp_uniforms"), 32, new Uint32Array([
             this.raySamples[0], this.raySamples[1],  // 40
         ]));
 
-        this.device.queue.writeBuffer(this.renderModeBuffer, 0, new Uint32Array([renderMode]));
+        this.bufferManager.write("render_mode", new Uint32Array([renderMode]));
 
         if (oldSamples[0] != this.raySamples[0] || oldSamples[1] != this.raySamples[1]) {
 
             // Recreate buffers
-            this.rayBuffer = this.device.createBuffer({
-                label: 'buffer-ray',
-                size: this.raySamples[0] * this.raySamples[1] * 2 * 4 * 4,
-                usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST | GPUBufferUsage.VERTEX,
-            });
+            this.bufferManager.resize("rays", this.raySamples[0] * this.raySamples[1] * 2 * 4 * 4);
+            this.bufferManager.resize("ray_nodes", this.raySamples[0] * this.raySamples[1] * 128 * 4);
+            this.bufferManager.resize("ray_node_counts", this.raySamples[0] * this.raySamples[1] * 4);
 
-            this.rayToNodeBuffer = this.device.createBuffer({
-                label: 'buffer-ray-node',
-                size: this.raySamples[0] * this.raySamples[1] * 128 * 4,
-                usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC,
-                mappedAtCreation: false,
-            });
-    
-            this.rayNodeCountsBuffer = this.device.createBuffer({
-                label: 'buffer-ray-node-count',
-                size: this.raySamples[0] * this.raySamples[1] * 4,
-                usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC,
-                mappedAtCreation: false,
-            });
+            this.bindGroupsManager.updateGroup("find", [
+                { binding: 1, resource: { buffer: this.bufferManager.get("rays") } },
+                { binding: 2, resource: { buffer: this.bufferManager.get("ray_node_counts") } },
+                { binding: 3, resource: { buffer: this.bufferManager.get("ray_nodes") } },
+            ]);
 
-            // Update the bind group with the new ray buffer
-            this.bind_group_find = this.device.createBindGroup({
-                label: 'bind-group-find',
-                layout: this.bind_group_layout_find,
-                entries: [
-                    { binding: 0, resource: { buffer: this.nodesBuffer } },
-                    { binding: 1, resource: { buffer: this.rayBuffer } },
-                    { binding: 2, resource: { buffer: this.rayToNodeBuffer } },
-                    { binding: 3, resource: { buffer: this.rayNodeCountsBuffer } },
-                    { binding: 4, resource: { buffer: this.nodeVisibilityBuffer } },
-                    { binding: 5, resource: { buffer: this.compUniformBuffer } },
-                ]
-            });
+            this.bindGroupsManager.updateGroup("sort", [
+                { binding: 1, resource: { buffer: this.bufferManager.get("rays") } },
+                { binding: 2, resource: { buffer: this.bufferManager.get("ray_node_counts") } },
+                { binding: 3, resource: { buffer: this.bufferManager.get("ray_nodes") } },
+            ]);
 
-            this.bind_group_sort = this.device.createBindGroup({
-                label: 'bind-group-sort',
-                layout: this.bind_group_layout_sort,
-                entries: [
-                    { binding: 0, resource: { buffer: this.nodesBuffer } },
-                    { binding: 1, resource: { buffer: this.rayBuffer } },
-                    { binding: 2, resource: { buffer: this.rayNodeCountsBuffer } },
-                    { binding: 3, resource: { buffer: this.rayToNodeBuffer } },
-                    { binding: 4, resource: { buffer: this.compUniformBuffer } },
-                ]
-            });
+            this.bindGroupsManager.updateGroup("render", [
+                { binding: 5, resource: { buffer: this.bufferManager.get("rays") } }
+            ]);
 
-            this.bind_group_render = this.device.createBindGroup({
-                label: 'render_bind_group',
-                layout: this.bind_group_layout_render,
-                entries: [
-                    { binding: 0, resource: { buffer: this.pointBuffer } },
-                    { binding: 1, resource: { buffer: this.indicesBuffer } },
-                    { binding: 2, resource: { buffer: this.pointVisibilityBuffer } },
-                    { binding: 4, resource: { buffer: this.vsUniformBuffer } },
-                    { binding: 5, resource: { buffer: this.rayBuffer } }
-                ]
-            });
             this.setupComputePipelines();
         }
         this.runComputePass();

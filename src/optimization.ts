@@ -192,6 +192,8 @@ export class QuadTree {
     depth: number;
     root: QuadTreeNode;
 
+    static readonly BYTES_PER_NODE = 48; // 12 floats
+
     constructor(bounds: AABB, depth: number) {
         this.depth = depth;
         this.root = new QuadTreeNode(bounds, depth);
@@ -223,7 +225,7 @@ export class QuadTree {
             }
         }
 
-        const buffer = new ArrayBuffer(nodeList.length * 48);
+        const buffer = new ArrayBuffer(nodeList.length * QuadTree.BYTES_PER_NODE);
         const floatView = new Float32Array(buffer); // Stores float values
         const intView = new Uint32Array(buffer); // Access integer part correctly
 
@@ -254,6 +256,10 @@ export class QuadTree {
 
         return pointToNodeBuffer;
     };
+
+    static totalNodes(depth: number): number {
+        return (4 ** (depth + 1) - 1) / 3;
+    }
 }
 
 export class MortonSorter {
