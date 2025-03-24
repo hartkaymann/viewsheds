@@ -36,12 +36,6 @@ export class Scene {
         this.gizmo = new Gizmo();
     }
 
-    async init() {
-        const url = "./model/80049_1525964_M-34-63-B-b-1-4-4-3.laz";
-
-        this.focusCameraOnPointCloud();
-    }
-
     focusCameraOnPointCloud() {
         const bounds = this.bounds;
 

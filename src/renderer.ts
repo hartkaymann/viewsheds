@@ -626,7 +626,6 @@ export class Renderer {
             { binding: 1, resource: { buffer: this.bufferManager.get("indices") } },
         ]);
 
-
         this.canRender.mesh = true;
     }
 

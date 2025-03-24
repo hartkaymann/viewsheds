@@ -133,7 +133,7 @@ class QuadTreeNode {
                 this.bounds.size[1] = Math.max(this.bounds.size[1], (child.bounds.pos[1] + child.bounds.size[1]) - this.bounds.pos[1]);
 
                 currentStart = newEnd;
-            } 
+            }
             // else {
             //      console.warn("No points assigned to child node:", child.bounds);
             // }
@@ -257,6 +257,86 @@ export class QuadTree {
 
         return pointToNodeBuffer;
     };
+
+    static reconstruct(buffer: ArrayBuffer, depth: number): QuadTree {
+        const floatView = new Float32Array(buffer);
+        const intView = new Uint32Array(buffer);
+        const nodeCount = buffer.byteLength / QuadTree.BYTES_PER_NODE;
+        const nodes: QuadTreeNode[] = [];
+
+        for (let i = 0; i < nodeCount; i++) {
+            const offset = i * 12;
+
+            const pos = vec3.fromValues(
+                floatView[offset + 0],
+                floatView[offset + 1],
+                floatView[offset + 2]
+            );
+
+            const size = vec3.fromValues(
+                floatView[offset + 4],
+                floatView[offset + 5],
+                floatView[offset + 6]
+            );
+
+            const childCount = intView[offset + 3];
+            const startPointIndex = intView[offset + 7];
+            const pointCount = intView[offset + 8];
+            const startTriangleIndex = intView[offset + 9];
+            const triangleCount = intView[offset + 10];
+
+            const node = new QuadTreeNode({ pos, size }, 0); // depth 0 to avoid auto-splitting
+            node.children = childCount === 4 ? [] : null;
+            node.startPointIndex = startPointIndex;
+            node.pointCount = pointCount;
+            node.startTriangleIndex = startTriangleIndex;
+            node.triangleCount = triangleCount;
+
+            nodes.push(node);
+        }
+
+        // Reconnect children in breadth-first order
+        let cursor = 1;
+        for (let i = 0; i < nodeCount; i++) {
+            const node = nodes[i];
+            if (node.children && node.children.length === 0) {
+                node.children = nodes.slice(cursor, cursor + 4);
+                cursor += 4;
+            }
+        }
+
+        return new QuadTree(nodes[0].bounds, depth).fill(nodes);
+    }
+
+    fill(nodes: QuadTreeNode[]): this {
+        if (!nodes.length) throw new Error("Empty node list");
+
+        let cursor = 0;
+        const queue: QuadTreeNode[] = [this.root];
+
+        while (queue.length > 0 && cursor < nodes.length) {
+            const node = queue.shift()!;
+            const data = nodes[cursor++];
+
+            node.startPointIndex = data.startPointIndex;
+            node.pointCount = data.pointCount;
+            node.startTriangleIndex = data.startTriangleIndex;
+            node.triangleCount = data.triangleCount;
+
+            if (data.children && data.children.length === 4) {
+                node.children = new Array(4);
+                for (let i = 0; i < 4; i++) {
+                    node.children[i] = queue.length + cursor < nodes.length
+                        ? new QuadTreeNode(data.children[i].bounds, 0)
+                        : null!;
+                    queue.push(node.children[i]);
+                }
+            } else {
+                node.children = null;
+            }
+        }
+        return this;
+    }
 
     static noMaxNodesHit(depth: number): number {
         return 2 ** (depth + 1)

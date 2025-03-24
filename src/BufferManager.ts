@@ -121,7 +121,7 @@ export class BufferManager {
         const oldBuffer = this.buffers.get(name);
         if (!oldBuffer) return;
 
-        const clampedSize = Math.min(newSize, this.device.limits.maxStorageBufferBindingSize);
+        const clampedSize = Math.max(Math.min(newSize, this.device.limits.maxStorageBufferBindingSize), 4);
 
         const newBuffer = this.device.createBuffer({
             label: oldBuffer.label,

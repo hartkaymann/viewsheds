@@ -4,10 +4,9 @@ import { Camera } from "./Camera";
 import { InputHandler } from "./InputHandler";
 import { DeviceManager } from "./DeviceManager";
 import { SceneLoader } from "./SceneLoader";
+import { QuadTree } from "./Optimization";
 
 async function main() {
-
-
     const deviceManager = new DeviceManager();
     try {
         await deviceManager.init();
@@ -35,32 +34,42 @@ async function main() {
 
     await renderer.init();
 
-    const loader = new SceneLoader();
+    const sceneLoader = new SceneLoader('./workers/SceneWorker.ts');
     const url = "./model/80049_1525964_M-34-63-B-b-1-4-4-3.laz";
-    loader.fetchAndProcessLASorLAZ(url).then(async ({ points, colors, bounds }) => {
-        scene.points = points;
-        scene.colors = colors;
-        scene.bounds = bounds;
+    const treeDepth = 5; // Don't set above 8! 
+    sceneLoader.setCallbacks({
+        onPointsLoaded: ({ points, colors, bounds }) => {
+            scene.points = points;
+            scene.colors = colors;
+            scene.bounds = bounds;
 
-        renderer.setPointData();
+            scene.focusCameraOnPointCloud();
+            renderer.setPointData();
 
-        // Step 2: Generate quadtree
-        loader.createQuadtree(points, bounds).then(tree => {
-            scene.tree = tree;
+            sceneLoader.startTreeBuild(points, bounds, treeDepth);
+        },
+
+        onTreeBuilt: (treeData) => {
+            scene.tree = QuadTree.reconstruct(treeData, treeDepth);
             renderer.setNodeData();
 
-            // // Step 3: Triangulate
-            // loader.performTriangulation(points, tree).then(({ indices, triangleCount, nodeToTriangles }) => {
-            //     scene.indices = indices;
-            //     scene.triangleCount = triangleCount;
-            //     scene.nodeToTriangles = nodeToTriangles;
+            sceneLoader.startTriangulation(scene.points, treeData, treeDepth);
+        },
 
-            //     renderer.setMeshData();
-            //     console.log("Triangulation complete");
-            // });
-        });
+        onTriangulationDone: ({ indices, triangleCount, nodeToTriangles }) => {
+            scene.indices = indices;
+            scene.triangleCount = triangleCount;
+            scene.nodeToTriangles = nodeToTriangles;
+
+            renderer.setMeshData();
+            console.log("Triangulation complete");
+        }
     });
+
+    sceneLoader.worker.postMessage({ type: "load-points", url });
+
+
 }
 
-    
+
 main().catch(console.error);
