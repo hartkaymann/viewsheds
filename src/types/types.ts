@@ -30,4 +30,5 @@ export interface WorkgroupLimits {
     maxSizeX: number;
     maxSizeY: number;
     maxSizeZ: number;
+    maxDispatch: number;
 }

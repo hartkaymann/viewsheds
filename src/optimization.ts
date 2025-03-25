@@ -69,14 +69,18 @@ class QuadTreeNode {
         }
     }
 
-    assignIndices(currentIndex: number): number {
-        this.index = currentIndex++;
-        if (this.children) {
-            for (const child of this.children) {
-                currentIndex = child.assignIndices(currentIndex);
+    assignIndicesBreadthFirst(): void {
+        let index = 0;
+        const queue: QuadTreeNode[] = [this];
+
+        while (queue.length > 0) {
+            const node = queue.shift()!;
+            node.index = index++;
+
+            if (node.children) {
+                queue.push(...node.children);
             }
         }
-        return currentIndex;
     }
 
     assignPoints(sortedPoints: Float32Array, startIndex: number, endIndex: number): void {
@@ -192,6 +196,7 @@ class QuadTreeNode {
 export class QuadTree {
     depth: number;
     root: QuadTreeNode;
+    flat: ArrayBuffer | null = null;
 
     static readonly BYTES_PER_NODE = 48; // 12 floats
 
@@ -206,7 +211,7 @@ export class QuadTree {
     }
 
     assignIndices() {
-        this.root.assignIndices(0);
+        this.root.assignIndicesBreadthFirst();
     }
 
     assignTriangles(triangles: Uint32Array, points: Float32Array, globalTriangleIndexBuffer: number[]): void {
@@ -214,6 +219,9 @@ export class QuadTree {
     }
 
     flatten(): ArrayBuffer {
+        if (this.flat)
+            return this.flat;
+
         const nodeList: QuadTreeNode[] = [];
         const queue: QuadTreeNode[] = [this.root];
 
@@ -241,6 +249,7 @@ export class QuadTree {
             intView[offset + 10] = node.triangleCount;
         });
 
+        this.flat = buffer;
         return buffer;
     }
 
@@ -261,81 +270,50 @@ export class QuadTree {
     static reconstruct(buffer: ArrayBuffer, depth: number): QuadTree {
         const floatView = new Float32Array(buffer);
         const intView = new Uint32Array(buffer);
-        const nodeCount = buffer.byteLength / QuadTree.BYTES_PER_NODE;
-        const nodes: QuadTreeNode[] = [];
 
-        for (let i = 0; i < nodeCount; i++) {
-            const offset = i * 12;
+        // Extract bounds from node 0
 
-            const pos = vec3.fromValues(
-                floatView[offset + 0],
-                floatView[offset + 1],
-                floatView[offset + 2]
-            );
+        const offset = 0;
+        const pos = vec3.fromValues(
+            floatView[offset],
+            floatView[offset + 1],
+            floatView[offset + 2]
+        );
+        const size = vec3.fromValues(
+            floatView[offset + 4],
+            floatView[offset + 5],
+            floatView[offset + 6]
+        );
 
-            const size = vec3.fromValues(
-                floatView[offset + 4],
-                floatView[offset + 5],
-                floatView[offset + 6]
-            );
+        const bounds = { pos, size };
+        const tree = new QuadTree(bounds, depth);
+        tree.assignIndices();
 
-            const childCount = intView[offset + 3];
-            const startPointIndex = intView[offset + 7];
-            const pointCount = intView[offset + 8];
-            const startTriangleIndex = intView[offset + 9];
-            const triangleCount = intView[offset + 10];
-
-            const node = new QuadTreeNode({ pos, size }, 0); // depth 0 to avoid auto-splitting
-            node.children = childCount === 4 ? [] : null;
-            node.startPointIndex = startPointIndex;
-            node.pointCount = pointCount;
-            node.startTriangleIndex = startTriangleIndex;
-            node.triangleCount = triangleCount;
-
-            nodes.push(node);
-        }
-
-        // Reconnect children in breadth-first order
-        let cursor = 1;
-        for (let i = 0; i < nodeCount; i++) {
-            const node = nodes[i];
-            if (node.children && node.children.length === 0) {
-                node.children = nodes.slice(cursor, cursor + 4);
-                cursor += 4;
-            }
-        }
-
-        return new QuadTree(nodes[0].bounds, depth).fill(nodes);
-    }
-
-    fill(nodes: QuadTreeNode[]): this {
-        if (!nodes.length) throw new Error("Empty node list");
-
-        let cursor = 0;
-        const queue: QuadTreeNode[] = [this.root];
-
-        while (queue.length > 0 && cursor < nodes.length) {
-            const node = queue.shift()!;
-            const data = nodes[cursor++];
-
-            node.startPointIndex = data.startPointIndex;
-            node.pointCount = data.pointCount;
-            node.startTriangleIndex = data.startTriangleIndex;
-            node.triangleCount = data.triangleCount;
-
-            if (data.children && data.children.length === 4) {
-                node.children = new Array(4);
-                for (let i = 0; i < 4; i++) {
-                    node.children[i] = queue.length + cursor < nodes.length
-                        ? new QuadTreeNode(data.children[i].bounds, 0)
-                        : null!;
-                    queue.push(node.children[i]);
-                }
-            } else {
+        tree.root.traverse(node => {
+            const i = node.index;
+            const off = i * 12;
+    
+            node.bounds.pos[0] = floatView[off];
+            node.bounds.pos[1] = floatView[off + 1];
+            node.bounds.pos[2] = floatView[off + 2];
+    
+            const childCount = intView[off + 3];
+            if (childCount === 0) {
                 node.children = null;
             }
-        }
-        return this;
+    
+            node.bounds.size[0] = floatView[off + 4];
+            node.bounds.size[1] = floatView[off + 5];
+            node.bounds.size[2] = floatView[off + 6];
+    
+            node.startPointIndex = intView[off + 7];
+            node.pointCount = intView[off + 8];
+            node.startTriangleIndex = intView[off + 9];
+            node.triangleCount = intView[off + 10];
+        });
+
+        return tree;
+
     }
 
     static noMaxNodesHit(depth: number): number {

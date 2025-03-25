@@ -1,5 +1,6 @@
 override TREE_DEPTH = 6u;
 override BLOCK_SIZE = 128u;
+override RAY_COUNT = 64u;
 
 struct Uniforms {
     modelMatrix: mat4x4f,
@@ -75,15 +76,15 @@ fn main(
     var color = vec4f(1.0, 1.0, 1.0, 0.5); 
     
     if(node.pointCount == 0u) {
-        color = vec4f(1.0, 0.0, 0.0, 0.5);
+        color = vec4f(0.63, 0.0, 0.0, 0.5);
     }
     
     if (getBoolean(instance_index)) {
-        color = vec4f(1.0, 0.5, 0.3, 1.0);
+        color = vec4f(1.0, 0.5, 0.0, 1.0);
 
-        for (var i = 0u; i < 64u; i++) {
+        for (var i = 0u; i < RAY_COUNT; i++) {
             if (rayNodeBuffer[i * BLOCK_SIZE] == nodeIndex) {
-                color = vec4f(0.2, 0.5, 1.0, 1.0);
+                color = vec4f(0.0, 0.47, 1.0, 1.0);
                 break;
             }
         }

@@ -167,6 +167,11 @@ export class Renderer {
                 size: this.raySamples[0] * this.raySamples[1] * 4,
                 usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC,
             },
+            {
+                name: "debug_distance",
+                size: this.raySamples[0] * this.raySamples[1] * QuadTree.noMaxNodesHit(this.scene.tree.depth) * 4,
+                usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC,
+            }
         ]);
 
         this.bindGroupsManager.createLayout({
@@ -188,7 +193,8 @@ export class Renderer {
                 { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
                 { binding: 2, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
                 { binding: 3, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
-                { binding: 4, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform" } },
+                { binding: 4, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
+                { binding: 5, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform" } },
             ]
         });
 
@@ -250,7 +256,8 @@ export class Renderer {
                 { binding: 1, resource: { buffer: this.bufferManager.get("rays") } },
                 { binding: 2, resource: { buffer: this.bufferManager.get("ray_node_counts") } },
                 { binding: 3, resource: { buffer: this.bufferManager.get("ray_nodes") } },
-                { binding: 4, resource: { buffer: this.bufferManager.get("comp_uniforms") } },
+                { binding: 4, resource: { buffer: this.bufferManager.get("debug_distance") } },
+                { binding: 5, resource: { buffer: this.bufferManager.get("comp_uniforms") } },
             ]
         });
 
@@ -457,6 +464,7 @@ export class Renderer {
             constants: {
                 TREE_DEPTH: this.scene.tree.depth,
                 BLOCK_SIZE: QuadTree.noMaxNodesHit(this.scene.tree.depth),
+                RAY_COUNT: this.raySamples[0] * this.raySamples[1],
             },
             render: {
                 vertex: {
@@ -558,6 +566,7 @@ export class Renderer {
 
         this.bufferManager.resize("node_visibility", QuadTree.leafNodes(this.scene.tree.depth) / 32 * Uint32Array.BYTES_PER_ELEMENT);
         this.bufferManager.resize("ray_nodes", this.raySamples[0] * this.raySamples[1] * QuadTree.noMaxNodesHit(this.scene.tree.depth) * 4);
+        this.bufferManager.resize("debug_distance", this.raySamples[0] * this.raySamples[1] * QuadTree.noMaxNodesHit(this.scene.tree.depth) * 4);
 
         this.bindGroupsManager.updateGroup("find", [
             { binding: 0, resource: { buffer: this.bufferManager.get("nodes") } },
@@ -568,6 +577,7 @@ export class Renderer {
         this.bindGroupsManager.updateGroup("sort", [
             { binding: 0, resource: { buffer: this.bufferManager.get("nodes") } },
             { binding: 3, resource: { buffer: this.bufferManager.get("ray_nodes") } },
+            { binding: 4, resource: { buffer: this.bufferManager.get("debug_distance") } },
         ]);
 
         this.bindGroupsManager.updateGroup("points", [
@@ -589,12 +599,12 @@ export class Renderer {
         });
 
         this.pipelineManager.update("find-leaves", {
-            codeConstants: {
-                MAX_STACK_SIZE: 2 * this.scene.tree.depth + 1
-            },
             constants: {
                 TREE_DEPTH: this.scene.tree.depth,
                 BLOCK_SIZE: QuadTree.noMaxNodesHit(this.scene.tree.depth)
+            },
+            codeConstants: {
+                MAX_STACK_SIZE: 2 ** this.scene.tree.depth + 1
             }
         });
 
@@ -604,11 +614,11 @@ export class Renderer {
         const linearWorkgroup = this.workgroups.getLayout("workgroup-per-ray");
 
         this.pipelineManager.update("bitonic-sort", {
-            codeConstants: {
-                WORKGROUP_SIZE: linearWorkgroup.workgroupSize[0],
-            },
             constants: {
                 BLOCK_SIZE: QuadTree.noMaxNodesHit(this.scene.tree.depth)
+            },
+            codeConstants: {
+                WORKGROUP_SIZE: linearWorkgroup.workgroupSize[0],
             }
         });
 
@@ -744,6 +754,7 @@ export class Renderer {
 
     async runComputePass() {
         this.bufferManager.clear("ray_nodes");
+        this.bufferManager.clear("debug_distance");
         this.bufferManager.clear("node_visibility");
 
         const computeEncoder: GPUCommandEncoder = this.device.createCommandEncoder();
@@ -759,7 +770,61 @@ export class Renderer {
         }
 
         computePass.end();
+
+        let distancesBuffer: GPUBuffer | undefined;
+        let indicesBuffer: GPUBuffer | undefined;
+
+        const rayCount = this.raySamples[0] * this.raySamples[1];
+        const bufferSize = rayCount * QuadTree.noMaxNodesHit(this.scene.tree.depth) * 4;
+
+        distancesBuffer = this.device.createBuffer({
+            size: bufferSize,
+            usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
+        });
+
+        indicesBuffer = this.device.createBuffer({
+            size: bufferSize,
+            usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
+        });
+
+        computeEncoder.copyBufferToBuffer(
+            this.bufferManager.get("debug_distance"), 0,
+            distancesBuffer, 0,
+            bufferSize
+        );
+
+        computeEncoder.copyBufferToBuffer(
+            this.bufferManager.get("ray_nodes"), 0,
+            indicesBuffer, 0,
+            bufferSize
+        );
+
         this.device.queue.submit([computeEncoder.finish()]);
+
+        if (distancesBuffer && indicesBuffer) {
+            // Map both buffers in parallel
+            await Promise.all([
+                distancesBuffer.mapAsync(GPUMapMode.READ),
+                indicesBuffer.mapAsync(GPUMapMode.READ),
+            ]);
+
+            const distanceArray = new Float32Array(distancesBuffer.getMappedRange());
+            const indexArray = new Uint32Array(indicesBuffer.getMappedRange());
+
+            const rayCount = this.raySamples[0] * this.raySamples[1];
+
+            const blockSize = QuadTree.noMaxNodesHit(this.scene.tree.depth);
+            for (let ray = 0; ray < rayCount; ray++) {
+                const offset = ray * blockSize;
+                console.log(`Ray ${ray}:`);
+                for (let i = 0; i < blockSize; i++) {
+                    const nodeIndex = indexArray[offset + i];
+                    const distance = distanceArray[offset + i];
+
+                    console.log(`  Node ${nodeIndex} => distance ${distance.toFixed(3)}`);
+                }
+            }
+        }
     }
 
     computeFindLeaves(encoder: GPUComputePassEncoder) {
@@ -878,7 +943,8 @@ export class Renderer {
 
             // Recreate buffers
             this.bufferManager.resize("rays", this.raySamples[0] * this.raySamples[1] * 2 * 4 * 4);
-            this.bufferManager.resize("ray_nodes", this.raySamples[0] * this.raySamples[1] * (2 ** (this.scene.tree.depth + 1)) * 4);
+            this.bufferManager.resize("ray_nodes", this.raySamples[0] * this.raySamples[1] * QuadTree.noMaxNodesHit(this.scene.tree.depth) * 4);
+            this.bufferManager.resize("debug_distance", this.raySamples[0] * this.raySamples[1] * QuadTree.noMaxNodesHit(this.scene.tree.depth) * 4);
             this.bufferManager.resize("ray_node_counts", this.raySamples[0] * this.raySamples[1] * 4);
 
             this.bindGroupsManager.updateGroup("find", [
@@ -891,6 +957,7 @@ export class Renderer {
                 { binding: 1, resource: { buffer: this.bufferManager.get("rays") } },
                 { binding: 2, resource: { buffer: this.bufferManager.get("ray_node_counts") } },
                 { binding: 3, resource: { buffer: this.bufferManager.get("ray_nodes") } },
+                { binding: 4, resource: { buffer: this.bufferManager.get("debug_distance") } },
             ]);
 
             this.bindGroupsManager.updateGroup("render", [
@@ -920,7 +987,13 @@ export class Renderer {
                 },
             });
 
-            this.setupComputePipelines();
+            this.pipelineManager.update("render-nodes", {
+                constants: {
+                    RAY_COUNT: this.raySamples[0] * this.raySamples[1],
+                }
+            });
+
+
         }
         this.runComputePass();
     }

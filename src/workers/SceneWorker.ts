@@ -235,7 +235,6 @@ function createQuadtree(points: Float32Array, bounds: Bounds, depth: number): Ar
         ),
     }, depth);
 
-    tree.assignIndices();
     tree.assignPoints(points);
 
     return tree.flatten();

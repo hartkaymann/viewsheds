@@ -18,6 +18,7 @@ export class WorkgroupManager {
             maxSizeX: device.limits.maxComputeWorkgroupSizeX,
             maxSizeY: device.limits.maxComputeWorkgroupSizeY,
             maxSizeZ: device.limits.maxComputeWorkgroupSizeZ,
+            maxDispatch: device.limits.maxComputeWorkgroupsPerDimension,
         };
     }
 
@@ -71,9 +72,9 @@ export class WorkgroupManager {
             Math.ceil(problemSize[2] / z)];
 
         dispatch = [
-            Math.min(dispatch[0], this.limits.maxSizeX),
-            Math.min(dispatch[1], this.limits.maxSizeY),
-            Math.min(dispatch[2], this.limits.maxSizeZ),];
+            Math.min(dispatch[0], this.limits.maxDispatch),
+            Math.min(dispatch[1], this.limits.maxDispatch),
+            Math.min(dispatch[2], this.limits.maxDispatch),];
 
         return { workgroupSize: [x, y, z], dispatchSize: dispatch };
     }

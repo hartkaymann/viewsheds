@@ -146,8 +146,10 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
         // For internal node, add 4 children
         let firstChildIndex = 4u * nodeIndex + 1u;                                       
         for (var i = 0u; i < 4u; i++) {
-            stackPointer += 1;
-            stack[stackPointer] = firstChildIndex + i;
+            if (stackPointer + 1 < __MAX_STACK_SIZE__) {
+                stackPointer += 1;
+                stack[stackPointer] = firstChildIndex + i;
+            }
         }
     }
     rayNodeCounts[rayIndex] = leafCount;
