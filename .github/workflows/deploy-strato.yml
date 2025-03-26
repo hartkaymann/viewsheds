@@ -1,8 +1,9 @@
+# .github/workflows/deploy.yml
 name: Build and Deploy to Strato
 
 on:
   push:
-    branches: [main]
+    branches: [master]
 
 jobs:
   deploy:
@@ -16,16 +17,16 @@ jobs:
         with:
           node-version: 18
 
-      - name: Install dependencies and build
+      - name: Install and Build
         run: |
-          npm ci
+          npm install
           npm run build
 
-      - name: Copy files to Strato via SCP
+      - name: Copy files to Strato
         uses: appleboy/scp-action@v0.1.6
         with:
           host: ssh.strato.de
-          username: youruser
+          username: hartkaymann.com
           key: ${{ secrets.STRATO_SSH_KEY }}
           source: dist/*
-          target: /home/youruser/my-vite-site
+          target: /viewsheds
