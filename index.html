@@ -5,7 +5,7 @@
   <meta charset="UTF-8">
   <meta http-equiv="X-UA-Compatible" content="IE=edge">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <link rel="stylesheet" href="./style.css">
+  <link rel="stylesheet" href="./src/styles/style.css">
   <title>Viewshed</title>
 </head>
 
@@ -57,7 +57,11 @@
       </div>
       <div>
         <label for="renderPoints">Render Points:</label>
-        <input type="checkbox" id="renderPoints" checked>
+        <input type="checkbox" id="renderPoints" unchecked>
+      </div>
+      <div>
+        <label for="renderMesh">Render Mesh:</label>
+        <input type="checkbox" id="renderMesh" unchecked>
       </div>
       <div>
         <label for="showNodes">Show Nodes:</label>
@@ -70,7 +74,7 @@
       <button id="updateValues">Update Values</button>
     </div>
   </div>
-  <div id="ray-inspection-table"></div>
+  <div id="debug-table-container"> </div>
   <script type="module" src="src/main.ts"></script>
 </body>
 

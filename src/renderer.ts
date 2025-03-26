@@ -15,6 +15,7 @@ import { QuadTree } from "./Optimization"
 import { BindGroupManager } from "./BindGroupsManager"
 import { PipelineManager } from "./PipelineManager"
 import { WorkgroupManager } from "./WorkgroupManager"
+import { Utils } from "./Utils"
 
 
 export class Renderer {
@@ -812,18 +813,8 @@ export class Renderer {
             const indexArray = new Uint32Array(indicesBuffer.getMappedRange());
 
             const rayCount = this.raySamples[0] * this.raySamples[1];
-
             const blockSize = QuadTree.noMaxNodesHit(this.scene.tree.depth);
-            for (let ray = 0; ray < rayCount; ray++) {
-                const offset = ray * blockSize;
-                console.log(`Ray ${ray}:`);
-                for (let i = 0; i < blockSize; i++) {
-                    const nodeIndex = indexArray[offset + i];
-                    const distance = distanceArray[offset + i];
-
-                    console.log(`  Node ${nodeIndex} => distance ${distance.toFixed(3)}`);
-                }
-            }
+            Utils.displayRayData(indexArray, distanceArray, rayCount, blockSize);
         }
     }
 
@@ -859,6 +850,8 @@ export class Renderer {
 
         const renderPointsCheckbox = <HTMLInputElement>document.getElementById("renderPoints");
         const renderPoints = renderPointsCheckbox.checked;
+        const renderMeshCheckbox = <HTMLInputElement>document.getElementById("renderMesh");
+        const renderMesh = renderMeshCheckbox.checked;
         if (this.canRender.points && renderPoints) {
             // Render points
             renderPass.setPipeline(this.pipelineManager.get<GPURenderPipeline>("render-points"));
@@ -868,10 +861,11 @@ export class Renderer {
             renderPass.setVertexBuffer(1, this.bufferManager.get("colors"));
             const pointsToDraw = this.bufferManager.get("points").size / 16;
             renderPass.draw(pointsToDraw, 1);
-        } else if (this.canRender.mesh) {
+        } else if (this.canRender.mesh && renderMesh) {
             // Render wireframe
             renderPass.setPipeline(this.pipelineManager.get<GPURenderPipeline>("render-wireframe"));
             renderPass.setBindGroup(0, this.bindGroupsManager.getGroup("render"));
+            renderPass.setVertexBuffer(0, this.bufferManager.get("points"));
             renderPass.draw(4, this.scene.triangleCount); // 1 -> 2 -> 3 -> 1
         }
 
@@ -886,6 +880,7 @@ export class Renderer {
         if (this.canRender.nodes && showNodes) {
             renderPass.setPipeline(this.pipelineManager.get<GPURenderPipeline>("render-nodes"));
             renderPass.setBindGroup(0, this.bindGroupsManager.getGroup("nodes"));
+            renderPass.setVertexBuffer(0, this.bufferManager.get("points"));
             renderPass.draw(24, QuadTree.leafNodes(this.scene.tree.depth));
         }
         renderPass.end();
