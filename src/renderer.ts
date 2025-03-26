@@ -697,6 +697,7 @@ export class Renderer {
         });
 
         // === Workgroup Strategy: 1 ray per workgroup for sorting ===
+        // TODO: This should go up to maximum workgroup size if we have too many rays. Going to have to also change to shader to handle this.
         const oneWorkgroupPerRay = (blockSize: number): WorkgroupStrategy =>
             ({ problemSize, totalThreads }) => {
                 if (blockSize > totalThreads) throw new Error(`BLOCK_SIZE too large`);
