@@ -1,5 +1,5 @@
 import { mat3, mat4, vec3 } from "gl-matrix";
-import { Camera } from "./Camera.ts";
+import { Camera } from "./Camera";
 
 export class Gizmo {
     readonly vertices: Float32Array = new Float32Array([
