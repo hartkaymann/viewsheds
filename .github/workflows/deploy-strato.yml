@@ -31,3 +31,4 @@ jobs:
           key: ${{ secrets.STRATO_SSH_KEY }}
           source: dist/*
           target: ~/viewsheds
+          strip_components: 1
