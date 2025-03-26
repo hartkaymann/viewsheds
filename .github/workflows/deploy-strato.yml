@@ -24,7 +24,13 @@ jobs:
           npm run build
 
       - name: Clean remote assets folder
-        run: ssh -i ~/.ssh/your_key hartkaymann.com@ssh.strato.de 'rm -rf ~/viewsheds/assets/*'
+        uses: appleboy/ssh-action@v0.1.6
+        with:
+          host: ssh.strato.de
+          username: hartkaymann.com
+          key: ${{ secrets.STRATO_SSH_KEY }}
+          port: 22
+          script: rm -rf ~/viewsheds/assets/*
 
       - name: Copy files to Strato
         uses: appleboy/scp-action@v0.1.6
