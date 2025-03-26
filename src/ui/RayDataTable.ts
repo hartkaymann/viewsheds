@@ -1,5 +1,3 @@
-import '../styles/debug-table.css';
-
 interface RayDataTableConfig {
     containerId: string;
     rayCount: number;
