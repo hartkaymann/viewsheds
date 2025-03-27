@@ -58,7 +58,7 @@ export class WorkgroupManager {
         problemSize: [number, number, number],
         strategy: WorkgroupStrategy
     ): WorkgroupLayout {
-        const result = strategy({ totalThreads: this.limits.maxTotalThreads, problemSize });
+        const result = strategy({ limits: this.limits, problemSize });
         const [x, y, z] = result.workgroupSize;
         const threads = x * y * z;
 

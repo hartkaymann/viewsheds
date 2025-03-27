@@ -2,9 +2,8 @@
 override BLOCK_SIZE: u32 = 64u;
 
 // Shared workgroup memory
-var<workgroup> keys: array<f32, BLOCK_SIZE>;
-var<workgroup> indices: array<u32, BLOCK_SIZE>;
-
+var<workgroup> keys: array<f32, __WORKGROUP_SIZE__>;
+var<workgroup> indices: array<u32, __WORKGROUP_SIZE__>;
 
 struct compUniforms {
     rayOrigin: vec3f,   
@@ -68,7 +67,7 @@ fn getEntryDistance(ray: Ray, nodeIndex: u32) -> f32 {
 }
 
 fn bitonicCompare(i: u32, j: u32, dir: bool) {
-    if (j >= BLOCK_SIZE) { return; }
+    if (i >= __WORKGROUP_SIZE__ || j >= __WORKGROUP_SIZE__) { return; }
 
     let key_i = keys[i];
     let key_j = keys[j];
@@ -90,25 +89,28 @@ fn bitonicCompare(i: u32, j: u32, dir: bool) {
 fn main(@builtin(local_invocation_id) lid: vec3<u32>,
         @builtin(workgroup_id) gid: vec3<u32>) {    
     
-    let local_id = lid.x;
-    let block_start = gid.x * BLOCK_SIZE;
-    let ray = rayBuffer[gid.x];
-    let count = min(rayNodeCounts[gid.x], BLOCK_SIZE);
-    let isActive = local_id < count;
+    let threadsPerBlock = BLOCK_SIZE;
+    let blocksPerGroup = __WORKGROUP_SIZE__ / threadsPerBlock;
+
+    let blockIndexInGroup = lid.x / BLOCK_SIZE;
+    let indexInBlock = lid.x % BLOCK_SIZE;
+    let globalBlockIndex = gid.x * blocksPerGroup + blockIndexInGroup;
+
+    let sharedIndex = blockIndexInGroup * BLOCK_SIZE + indexInBlock;
+
+    let blockStart = globalBlockIndex * BLOCK_SIZE;
+    let ray = rayBuffer[globalBlockIndex];
+    let count = min(rayNodeCounts[globalBlockIndex], BLOCK_SIZE);
+
+    let isActive = indexInBlock < count;
 
     var key: u32 = 0u;
     var index: u32 = 0u;
 
     // Load keys and indices
-    if (isActive) {
-        let nodeIndex = rayNodeBuffer[block_start + local_id];
-        indices[local_id] = nodeIndex;
-        keys[local_id] = getEntryDistance(ray, nodeIndex);
-    } else {
-        // Fill with max values to push them to the end
-        indices[local_id] = 0xFFFFFFFFu;
-        keys[local_id] = 1e9;
-    }
+    let nodeIndex = select(0xFFFFFFFFu, rayNodeBuffer[blockStart + indexInBlock], isActive);
+    indices[sharedIndex] = nodeIndex;
+    keys[sharedIndex] = getEntryDistance(ray, nodeIndex);
 
     workgroupBarrier();
 
@@ -117,10 +119,11 @@ fn main(@builtin(local_invocation_id) lid: vec3<u32>,
     while (k <= BLOCK_SIZE) {
         var j = k >> 1u;
         while (j > 0u) {
-            let ixj = local_id ^ j;
-            if (ixj > local_id) {
-                let ascending = ((local_id & k) == 0u);
-                bitonicCompare(local_id, ixj, ascending);
+            let ixj = indexInBlock ^ j;
+            if (ixj > indexInBlock) {
+                let ixjShared = blockIndexInGroup * BLOCK_SIZE + ixj;
+                let ascending = ((indexInBlock & k) == 0u);
+                bitonicCompare(sharedIndex, ixjShared, ascending);
             }
             workgroupBarrier();
             j = j >> 1u;
@@ -132,9 +135,8 @@ fn main(@builtin(local_invocation_id) lid: vec3<u32>,
 
     // Write back sorted indices
     if (isActive) {
-        rayNodeBuffer[block_start + local_id] = indices[local_id];
-
-        let dist = getEntryDistance(ray, indices[local_id]);
-        debugDistances[block_start + local_id] = dist;
+        let sortedNode = indices[sharedIndex];
+        rayNodeBuffer[blockStart + indexInBlock] = sortedNode;
+        debugDistances[blockStart + indexInBlock] = getEntryDistance(ray, sortedNode);
     }
 }

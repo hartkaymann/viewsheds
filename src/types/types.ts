@@ -16,7 +16,7 @@ interface WorkgroupStrategyResult {
 }
 
 export type WorkgroupStrategy = (params: {
-    totalThreads: number;
+    limits: WorkgroupLimits;
     problemSize: [number, number, number];
 }) => WorkgroupStrategyResult;
 

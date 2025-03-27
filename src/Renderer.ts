@@ -654,10 +654,10 @@ export class Renderer {
 
         // === Workgroup Strategy: 2D tiling for rays ===
         const tile2DGridPerRay = (): WorkgroupStrategy =>
-            ({ totalThreads, problemSize }) => {
-                const maxX = Math.floor(Math.sqrt(totalThreads));
+            ({ problemSize, limits }) => {
+                const maxX = Math.floor(Math.sqrt(limits.maxTotalThreads));
                 const x = Math.min(problemSize[0], maxX);
-                const y = Math.min(problemSize[1], Math.floor(totalThreads / x));
+                const y = Math.min(problemSize[1], Math.floor(limits.maxTotalThreads / x));
 
                 return {
                     workgroupSize: [x, y, 1],
@@ -698,20 +698,40 @@ export class Renderer {
 
         // === Workgroup Strategy: 1 ray per workgroup for sorting ===
         // TODO: This should go up to maximum workgroup size if we have too many rays. Going to have to also change to shader to handle this.
-        const oneWorkgroupPerRay = (blockSize: number): WorkgroupStrategy =>
-            ({ problemSize, totalThreads }) => {
-                if (blockSize > totalThreads) throw new Error(`BLOCK_SIZE too large`);
-                const rayCount = problemSize[0];
+        const multiRayPerWorkgroup = (blockSize: number): WorkgroupStrategy =>
+            ({ problemSize, limits }) => {
+                const totalRays = problemSize[0];
+                const maxThreads = limits.maxTotalThreads;
+
+                if (blockSize > maxThreads) {
+                    throw new Error(`BLOCK_SIZE (${blockSize}) exceeds max workgroup size (${maxThreads})`);
+                }
+
+                const maxBlocksPerGroup = Math.floor(maxThreads / blockSize);
+                const totalBlocks = totalRays;
+                
+                const blocksPerGroup = Math.min(maxBlocksPerGroup, totalBlocks);
+
+                if (blocksPerGroup === 0) {
+                    throw new Error(`BLOCK_SIZE too large to fit even one block in a workgroup`);
+                }
+
+                const dispatchSizeX = Math.ceil(totalBlocks / blocksPerGroup);
+
+                if (dispatchSizeX > limits.maxDispatch) {
+                    throw new Error(`Dispatch size (${dispatchSizeX}) exceeds device limit (${limits.maxDispatch})`);
+                }
+
                 return {
-                    workgroupSize: [blockSize, 1, 1],
-                    dispatchSize: [rayCount, 1, 1],
+                    workgroupSize: [blocksPerGroup * blockSize, 1, 1],
+                    dispatchSize: [dispatchSizeX, 1, 1],
                 };
             };
 
         this.workgroups.register({
             name: "workgroup-per-ray",
             problemSize: [this.raySamples[0] * this.raySamples[1], 1, 1],
-            strategyFn: oneWorkgroupPerRay,
+            strategyFn: multiRayPerWorkgroup,
             strategyArgs: [QuadTree.noMaxNodesHit(this.scene.tree.depth)],
         });
 
