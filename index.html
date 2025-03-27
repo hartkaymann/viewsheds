@@ -13,6 +13,7 @@
 <body>
   <div id="container">
     <canvas id="gfx-main" width="1280" height="720"></canvas>
+    <input type="file" id="file-input" accept=".laz,.las" />
     <div id="debug">
       <h2>Debug:</h2>
       <span>fps: </span><span id="fps"></span><br>
@@ -64,7 +65,10 @@
         <label for="renderMesh">Render Mesh:</label>
         <input type="checkbox" id="renderMesh" unchecked>
       </div>
-      <!-- TODO: Add a render-rays so it doesnt render a million rays or optinally render the rays as a bounding box based on the angular settings. -->
+      <div>
+        <label for="renderRays">Render Rays:</label>
+        <input type="checkbox" id="renderRays" checked>
+      </div>
       <div>
         <label for="showNodes">Show Nodes:</label>
         <input type="checkbox" id="showNodes" checked>

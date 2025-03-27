@@ -1,4 +1,4 @@
-import { Bounds } from "./workers/SceneWorker";
+import { Bounds } from "./types/types";
 
 export interface SceneLoaderCallbacks {
     onPointsLoaded?: (data: {
@@ -19,9 +19,8 @@ export class SceneLoader {
     worker: Worker;
     private callbacks: SceneLoaderCallbacks = {};
 
-    constructor(workerPath: string, callbacks?: SceneLoaderCallbacks) {
-        const workerURL = new URL(workerPath, import.meta.url);
-        this.worker = new Worker(workerURL, { type: "module" });
+    constructor(WorkerConstructor: new () => Worker, callbacks?: SceneLoaderCallbacks) {
+        this.worker = new WorkerConstructor();
         this.callbacks = callbacks ?? {};
         this.worker.onmessage = (e: MessageEvent<any>) => {
             const msg = e.data;
@@ -52,7 +51,7 @@ export class SceneLoader {
     }
 
     startLoadPoints(url) {
-        this.worker.postMessage({ type: "load-points", url});
+        this.worker.postMessage({ type: "load-url", url });
     }
 
     startTreeBuild(points, bounds, depth) {

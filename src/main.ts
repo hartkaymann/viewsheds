@@ -6,6 +6,8 @@ import { DeviceManager } from "./DeviceManager";
 import { SceneLoader } from "./SceneLoader";
 import { QuadTree } from "./Optimization";
 
+import SceneWorker from './workers/SceneWorker.ts?worker';
+
 async function main() {
     const deviceManager = new DeviceManager();
     try {
@@ -34,8 +36,7 @@ async function main() {
 
     await renderer.init();
 
-    const sceneLoader = new SceneLoader('./workers/SceneWorker.ts');
-    const url = "./model/80049_1525964_M-34-63-B-b-1-4-4-3.laz";
+    const sceneLoader = new SceneLoader(SceneWorker);
     const treeDepth = 5; // Don't set above 8! 
     sceneLoader.setCallbacks({
         onPointsLoaded: ({ points, colors, bounds }) => {
@@ -66,10 +67,29 @@ async function main() {
         }
     });
 
-    sceneLoader.worker.postMessage({ type: "load-points", url });
-
-
+    const input = document.getElementById("file-input") as HTMLInputElement;
+    input.addEventListener("change", (event) => {
+        const file = input.files?.[0];
+        if (file) {
+            const reader = new FileReader();
+    
+            reader.onload = () => {
+                const arrayBuffer = reader.result as ArrayBuffer;
+    
+                // Send buffer to SceneWorker
+                sceneLoader.worker.postMessage({
+                    type: "load-arraybuffer",
+                    name: file.name,
+                    buffer: arrayBuffer
+                }, [arrayBuffer]); // Transferable to avoid copying
+            };
+    
+            reader.readAsArrayBuffer(file);
+        }
+    });
+    const url = "/model/80049_1525964_M-34-63-B-b-1-4-4-3.laz"
+    sceneLoader.worker.postMessage({ type: "load-url", url });
 }
-
+    
 
 main().catch(console.error);

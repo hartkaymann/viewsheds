@@ -891,9 +891,13 @@ export class Renderer {
         }
 
         // Render rays
-        renderPass.setPipeline(this.pipelineManager.get<GPURenderPipeline>("render-rays"));
-        renderPass.setBindGroup(0, this.bindGroupsManager.getGroup("render"));
-        renderPass.draw(2 * this.raySamples[0] * this.raySamples[1], 1);
+        const renderRaysCheckbox = <HTMLInputElement>document.getElementById("renderRays");
+        const renderRays = renderRaysCheckbox.checked;
+        if(renderRays) {
+            renderPass.setPipeline(this.pipelineManager.get<GPURenderPipeline>("render-rays"));
+            renderPass.setBindGroup(0, this.bindGroupsManager.getGroup("render"));
+            renderPass.draw(2 * this.raySamples[0] * this.raySamples[1], 1);
+        }
 
         // Render nodes
         const showNodesCheckbox = <HTMLInputElement>document.getElementById("showNodes");

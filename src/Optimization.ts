@@ -292,20 +292,20 @@ export class QuadTree {
         tree.root.traverse(node => {
             const i = node.index;
             const off = i * 12;
-    
+
             node.bounds.pos[0] = floatView[off];
             node.bounds.pos[1] = floatView[off + 1];
             node.bounds.pos[2] = floatView[off + 2];
-    
+
             const childCount = intView[off + 3];
             if (childCount === 0) {
                 node.children = null;
             }
-    
+
             node.bounds.size[0] = floatView[off + 4];
             node.bounds.size[1] = floatView[off + 5];
             node.bounds.size[2] = floatView[off + 6];
-    
+
             node.startPointIndex = intView[off + 7];
             node.pointCount = intView[off + 8];
             node.startTriangleIndex = intView[off + 9];
@@ -351,8 +351,11 @@ export class MortonSorter {
         }
 
         // Sort by Morton code
-        indices.sort((a, b) => mortonCodes[a] - mortonCodes[b]);
-
+        indices.sort((a, b) => {
+            const codeA = mortonCodes[a];
+            const codeB = mortonCodes[b];
+            return codeA < codeB ? -1 : codeA > codeB ? 1 : 0;
+        });
         // Reorder points based on sorted Morton codes
         const sortedPoints = new Float32Array(points.length);
 
@@ -370,16 +373,20 @@ export class MortonSorter {
         z: number,
         bounds: Bounds
     ): number {
-        const MAX_BITS = 1 << 16;
+        const MAX_VALUE = (1 << 16); // 65535
+        const safeNormalize = (v: number, min: number, max: number) => {
+            const normalized = (v - min) / (max - min);
+            return Math.min(normalized, 1.0 - 1e-6);
+        };
 
-        const normX = Math.floor(MAX_BITS * (x - bounds.min.x) / (bounds.max.x - bounds.min.x)); // Normalize X
-        const normZ = Math.floor(MAX_BITS * (z - bounds.min.z) / (bounds.max.z - bounds.min.z)); // Normalize Z
+        const normX = Math.floor(safeNormalize(x, bounds.min.x, bounds.max.x) * MAX_VALUE);
+        const normZ = Math.floor(safeNormalize(z, bounds.min.z, bounds.max.z) * MAX_VALUE);
         return this.morton2D(normX, normZ); // Interleave bits for XZ only
     }
 
     morton2D(x: number, z: number): number {
         let morton = 0;
-        for (let i = 0; i < 32; i++) {
+        for (let i = 0; i < 16; i++) {
             morton |= ((x >> i) & 1) << (2 * i) | ((z >> i) & 1) << (2 * i + 1);
         }
         return morton;

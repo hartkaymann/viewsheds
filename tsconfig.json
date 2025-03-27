@@ -19,7 +19,6 @@
     /* Linting */
     "strict": false,
     "noFallthroughCasesInSwitch": true,
-    /* types */
     "typeRoots": [
       "./node_modules/@webgpu/types",
       "./node_modules/tweakpane/dist/type/",

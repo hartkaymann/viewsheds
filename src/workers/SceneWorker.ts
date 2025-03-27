@@ -1,24 +1,17 @@
+/// <reference lib="webworker" />
+/// <reference types="vite/client" />
+
 import { vec3 } from "gl-matrix";
 import { LASDecoder, LASFile } from "./laslaz";
 import { MortonSorter, QuadTree } from "../Optimization";
+import { Bounds } from "../types/types";
 import Delaunator from "delaunator";
-
-type WorkerMessage =
-    | { type: "load-points"; url: string }
-    | { type: "build-tree"; points: Float32Array; bounds: Bounds; depth: number }
-    | { type: "triangulate"; points: Float32Array; tree: any }; // tree must be serializable
-
-export interface Bounds {
-    min: { x: number; y: number; z: number };
-    max: { x: number; y: number; z: number };
-}
-
 
 self.onmessage = async (e) => {
     const msg = e.data;
     try {
         switch (msg.type) {
-            case "load-points": {
+            case "load-url": {
                 const { url } = msg;
 
                 console.log(`Checking cache for: ${url}`);
@@ -35,6 +28,20 @@ self.onmessage = async (e) => {
 
                 storeInCache(url, points, colors);
                 postMessage({ type: "loaded", points, colors, bounds });
+                return;
+            }
+
+            case "load-arraybuffer": {
+                const { buffer, name } = msg;
+
+                const { points: rawPoints, colors: rawColors } = await loadFromBuffer(buffer);
+                const { points: sortedPoints, colors: sortedColors, bounds } = sortPointCloud(rawPoints, rawColors);
+
+
+                self.postMessage(
+                    { type: "loaded", points: sortedPoints, colors: sortedColors, bounds },
+                    [sortedPoints.buffer, sortedColors.buffer]
+                );
                 return;
             }
 
@@ -106,12 +113,63 @@ async function loadFromFile(url: string): Promise<{ points: Float32Array, colors
     console.log(`Fetching binary data from: ${url}`);
 
     // Fetch the LAZ/LAS file as an ArrayBuffer
-    const response = await fetch(url);
+    const response = await fetch(`${url}?nocache=${Date.now()}`);
     if (!response.ok) throw new Error(`Failed to load file: ${response.statusText}`);
     const arrayBuffer = await response.arrayBuffer();
 
     console.log("Successfully fetched file, initializing LAS/LAZ parser...");
     const lasFile = new LASFile(arrayBuffer);
+    await lasFile.open();
+
+    // Read the header
+    const header = await lasFile.getHeader();
+    console.log("Header Info:", header);
+
+    // Read and process points
+    const totalPoints = header.pointsCount;
+    console.log(`Total Points: ${totalPoints}`);
+
+    const data = await lasFile.readData(totalPoints, 0, 1);
+    const decoder = new LASDecoder(data.buffer, totalPoints, header);
+
+    const points = new Float32Array(totalPoints * 4);
+    const colors = new Float32Array(totalPoints * 4);
+
+    let extractedCount = 0;
+    for (let i = 0; i < totalPoints; i++) {
+        const point = decoder.getPoint(i);
+
+        let position = vec3.create();
+        vec3.multiply(position, point.position, header.scale);
+        vec3.add(position, position, header.offset);
+
+        position[0] = position[0] - header.mins[0];
+        position[1] = position[1] - header.mins[1];
+        position[2] = position[2] - header.mins[2];
+
+        points[extractedCount * 4] = position[0];
+        points[extractedCount * 4 + 1] = position[2]; // swap y and z
+        points[extractedCount * 4 + 2] = position[1];
+        points[extractedCount * 4 + 3] = 1.0; // w
+
+        let color = vec3.create();
+        vec3.scale(color, point.color, 1 / 255);
+
+        colors[extractedCount * 4] = color[0];
+        colors[extractedCount * 4 + 1] = color[1];
+        colors[extractedCount * 4 + 2] = color[2];
+        colors[extractedCount * 4 + 3] = 1.0; // alpha
+
+        extractedCount++;
+    }
+    await lasFile.close();
+
+    return { points, colors };
+}
+
+async function loadFromBuffer(buffer: ArrayBuffer): Promise<{ points: Float32Array, colors: Float32Array }> {
+    console.log("Successfully fetched file, initializing LAS/LAZ parser...");
+    const lasFile = new LASFile(buffer);
     await lasFile.open();
 
     // Read the header
@@ -207,7 +265,7 @@ function calculateBounds(points: Float32Array): Bounds {
 }
 
 function sortPointCloud(points: Float32Array, colors: Float32Array): { points: Float32Array, colors: Float32Array, bounds: Bounds } {
-    const bounds = this.calculateBounds(points);
+    const bounds = calculateBounds(points);
     const sorter = new MortonSorter();
     const { sortedPoints, sortedIndices } = sorter.sort(points, bounds);
     const sortedColors = reorderFromSortedIndices(colors, sortedIndices);

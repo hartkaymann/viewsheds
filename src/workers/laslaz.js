@@ -3,7 +3,6 @@
 
 import { Promise } from "bluebird";
 
-
 const pointFormatReaders = {
     0: function(dv) {
         return {
@@ -205,7 +204,7 @@ export class LASLoader {
 export class LAZLoader {
     constructor(arraybuffer) {
         this.arraybuffer = arraybuffer;
-        this.ww = new Worker(new URL('./workers/laz-loader-worker.js', import.meta.url));
+        this.ww = new Worker(new URL('./laz-loader-worker.js', import.meta.url));
 
         this.nextCB = null;
         const o = this;
