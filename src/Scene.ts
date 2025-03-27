@@ -9,7 +9,7 @@ export class Scene {
     camera: Camera
 
     points: Float32Array;
-    colors: Float32Array;
+    colors: Float32Array | null;
     indices: Uint32Array;
     nodeToTriangles: Uint32Array;
 
@@ -48,5 +48,18 @@ export class Scene {
 
         this.camera.setPosition(vec3.fromValues(centerX, centerY, centerZ + distance));
         this.camera.setTarget(vec3.fromValues(centerX, centerY, centerZ));
+    }
+
+    clear() {
+        this.points = new Float32Array();
+        this.colors = new Float32Array();
+        this.indices = new Uint32Array();
+        this.nodeToTriangles = new Uint32Array();
+        this.triangleCount = 0;
+        this.bounds = {
+            min: { x: 0, y: 0, z: 0 },
+            max: { x: 0, y: 0, z: 0 }
+        };
+        this.tree = new QuadTree({ pos: vec3.create(), size: vec3.create() }, 0);
     }
 }

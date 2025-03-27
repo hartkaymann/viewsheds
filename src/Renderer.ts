@@ -8,8 +8,7 @@ import gizmo_src from "./shaders/gizmo.wgsl"
 import nodes_src from "./shaders/nodes.wgsl"
 
 import { Scene } from "./Scene";
-import { mat3, mat4, vec3 } from "gl-matrix";
-import { WorkgroupLayout, WorkgroupLimits, WorkgroupStrategy } from "./types/types"
+import { WorkgroupStrategy } from "./types/types"
 import { BufferManager } from "./BufferManager"
 import { QuadTree } from "./Optimization"
 import { BindGroupManager } from "./BindGroupsManager"
@@ -709,7 +708,7 @@ export class Renderer {
 
                 const maxBlocksPerGroup = Math.floor(maxThreads / blockSize);
                 const totalBlocks = totalRays;
-                
+
                 const blocksPerGroup = Math.min(maxBlocksPerGroup, totalBlocks);
 
                 if (blocksPerGroup === 0) {
@@ -893,7 +892,7 @@ export class Renderer {
         // Render rays
         const renderRaysCheckbox = <HTMLInputElement>document.getElementById("renderRays");
         const renderRays = renderRaysCheckbox.checked;
-        if(renderRays) {
+        if (renderRays) {
             renderPass.setPipeline(this.pipelineManager.get<GPURenderPipeline>("render-rays"));
             renderPass.setBindGroup(0, this.bindGroupsManager.getGroup("render"));
             renderPass.draw(2 * this.raySamples[0] * this.raySamples[1], 1);
@@ -1031,5 +1030,15 @@ export class Renderer {
 
         const fpsLabel: HTMLElement = <HTMLElement>document.getElementById("fps");
         fpsLabel.innerText = (this.fps).toFixed(2);
+    }
+
+    reset() {
+        this.canRender = {
+            gizmo: true,
+            points: false,
+            mesh: false,
+            nodes: false,
+        }
+        this.init();
     }
 }

@@ -43,7 +43,7 @@ async function main() {
             scene.points = points;
             scene.colors = colors;
             scene.bounds = bounds;
-
+            
             scene.focusCameraOnPointCloud();
             renderer.setPointData();
 
@@ -75,15 +75,17 @@ async function main() {
     
             reader.onload = () => {
                 const arrayBuffer = reader.result as ArrayBuffer;
-    
-                // Send buffer to SceneWorker
+
                 sceneLoader.worker.postMessage({
                     type: "load-arraybuffer",
                     name: file.name,
                     buffer: arrayBuffer
-                }, [arrayBuffer]); // Transferable to avoid copying
+                }, [arrayBuffer]);
             };
-    
+
+            scene.clear();
+            renderer.reset();
+            
             reader.readAsArrayBuffer(file);
         }
     });

@@ -1,3 +1,5 @@
+override COLOR: bool = true;
+
 struct Uniforms {
     modelMatrix: mat4x4f,
     viewMatrix: mat4x4f,
@@ -39,7 +41,7 @@ fn main(@location(0) position: vec4f, @location(1) color: vec4f, @builtin(vertex
  
   switch renderMode {
     case 0u: {  // Vertex color mode
-      let colFac = 0.00392156862; // Normalize 8-bit color
+      let colFac = 0.00392156862; // 1/255
       output.color = color * vec4f(colFac, colFac, colFac, 1.0);
     }
 

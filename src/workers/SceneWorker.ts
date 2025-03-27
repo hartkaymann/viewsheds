@@ -118,103 +118,62 @@ async function loadFromFile(url: string): Promise<{ points: Float32Array, colors
     const arrayBuffer = await response.arrayBuffer();
 
     console.log("Successfully fetched file, initializing LAS/LAZ parser...");
+    return parseLASPoints(arrayBuffer);
+}
+
+async function loadFromBuffer(buffer: ArrayBuffer): Promise<{ points: Float32Array, colors: Float32Array | null }> {
+    console.log("Successfully fetched file, initializing LAS/LAZ parser...");
+    return parseLASPoints(buffer);
+}
+
+async function parseLASPoints(arrayBuffer: ArrayBuffer): Promise<{
+    points: Float32Array;
+    colors: Float32Array
+}> {
     const lasFile = new LASFile(arrayBuffer);
     await lasFile.open();
 
-    // Read the header
     const header = await lasFile.getHeader();
-    console.log("Header Info:", header);
-
-    // Read and process points
     const totalPoints = header.pointsCount;
-    console.log(`Total Points: ${totalPoints}`);
 
     const data = await lasFile.readData(totalPoints, 0, 1);
     const decoder = new LASDecoder(data.buffer, totalPoints, header);
 
     const points = new Float32Array(totalPoints * 4);
-    const colors = new Float32Array(totalPoints * 4);
+    let colors: Float32Array = new Float32Array(totalPoints * 4);
 
     let extractedCount = 0;
     for (let i = 0; i < totalPoints; i++) {
         const point = decoder.getPoint(i);
 
-        let position = vec3.create();
+        // Position
+        const position = vec3.create();
         vec3.multiply(position, point.position, header.scale);
         vec3.add(position, position, header.offset);
-
-        position[0] = position[0] - header.mins[0];
-        position[1] = position[1] - header.mins[1];
-        position[2] = position[2] - header.mins[2];
+        position[0] -= header.mins[0];
+        position[1] -= header.mins[1];
+        position[2] -= header.mins[2];
 
         points[extractedCount * 4] = position[0];
-        points[extractedCount * 4 + 1] = position[2]; // swap y and z
+        points[extractedCount * 4 + 1] = position[2]; // swap y/z
         points[extractedCount * 4 + 2] = position[1];
-        points[extractedCount * 4 + 3] = 1.0; // w
+        points[extractedCount * 4 + 3] = 1.0;
 
-        let color = vec3.create();
-        vec3.scale(color, point.color, 1 / 255);
-
-        colors[extractedCount * 4] = color[0];
-        colors[extractedCount * 4 + 1] = color[1];
-        colors[extractedCount * 4 + 2] = color[2];
-        colors[extractedCount * 4 + 3] = 1.0; // alpha
+        if (point.color) {
+            const color = vec3.create();
+            vec3.scale(color, point.color, 1 / 255);
+            colors[extractedCount * 4] = color[0];
+            colors[extractedCount * 4 + 1] = color[1];
+            colors[extractedCount * 4 + 2] = color[2];
+            colors[extractedCount * 4 + 3] = 1.0;
+        } else {
+            colors.set([1, 1, 1, 1], extractedCount * 4);
+        }
 
         extractedCount++;
     }
+
     await lasFile.close();
-
-    return { points, colors };
-}
-
-async function loadFromBuffer(buffer: ArrayBuffer): Promise<{ points: Float32Array, colors: Float32Array }> {
-    console.log("Successfully fetched file, initializing LAS/LAZ parser...");
-    const lasFile = new LASFile(buffer);
-    await lasFile.open();
-
-    // Read the header
-    const header = await lasFile.getHeader();
-    console.log("Header Info:", header);
-
-    // Read and process points
-    const totalPoints = header.pointsCount;
-    console.log(`Total Points: ${totalPoints}`);
-
-    const data = await lasFile.readData(totalPoints, 0, 1);
-    const decoder = new LASDecoder(data.buffer, totalPoints, header);
-
-    const points = new Float32Array(totalPoints * 4);
-    const colors = new Float32Array(totalPoints * 4);
-
-    let extractedCount = 0;
-    for (let i = 0; i < totalPoints; i++) {
-        const point = decoder.getPoint(i);
-
-        let position = vec3.create();
-        vec3.multiply(position, point.position, header.scale);
-        vec3.add(position, position, header.offset);
-
-        position[0] = position[0] - header.mins[0];
-        position[1] = position[1] - header.mins[1];
-        position[2] = position[2] - header.mins[2];
-
-        points[extractedCount * 4] = position[0];
-        points[extractedCount * 4 + 1] = position[2]; // swap y and z
-        points[extractedCount * 4 + 2] = position[1];
-        points[extractedCount * 4 + 3] = 1.0; // w
-
-        let color = vec3.create();
-        vec3.scale(color, point.color, 1 / 255);
-
-        colors[extractedCount * 4] = color[0];
-        colors[extractedCount * 4 + 1] = color[1];
-        colors[extractedCount * 4 + 2] = color[2];
-        colors[extractedCount * 4 + 3] = 1.0; // alpha
-
-        extractedCount++;
-    }
-    await lasFile.close();
-
     return { points, colors };
 }
 
