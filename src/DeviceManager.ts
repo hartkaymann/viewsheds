@@ -13,6 +13,7 @@ export class DeviceManager {
         }
 
         const requiredLimits = {
+            maxBufferSize: this.adapter.limits.maxBufferSize,
             maxStorageBufferBindingSize: this.adapter.limits.maxStorageBufferBindingSize,
             maxStorageBuffersPerShaderStage: this.adapter.limits.maxStorageBuffersPerShaderStage,
             maxComputeInvocationsPerWorkgroup: this.adapter.limits.maxComputeInvocationsPerWorkgroup,

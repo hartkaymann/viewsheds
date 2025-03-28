@@ -32,3 +32,9 @@ export interface WorkgroupLimits {
     maxSizeZ: number;
     maxDispatch: number;
 }
+
+export interface BufferLimits {
+    maxBufferSize: number;
+    maxUniformBufferBindingSize: number;
+    maxStorageBufferBindingSize: number;
+}

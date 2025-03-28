@@ -49,7 +49,7 @@ class QuadTreeNode {
     }
 
     containsPoint(px: number, pz: number): boolean {
-        const EPSILON = 1e-6;
+        const EPSILON = Math.min(this.bounds.size[0], this.bounds.size[2]) * 0.001;
         return (
             px >= this.bounds.pos[0] - EPSILON &&
             px <= this.bounds.pos[0] + this.bounds.size[0] + EPSILON &&
@@ -138,9 +138,9 @@ class QuadTreeNode {
 
                 currentStart = newEnd;
             }
-            // else {
-            //      console.warn("No points assigned to child node:", child.bounds);
-            // }
+            else {
+                 console.warn("No points assigned to child node:", child.bounds);
+            }
         }
     }
 

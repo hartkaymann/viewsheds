@@ -1,3 +1,4 @@
+import { BufferLimits } from "./types/types";
 
 interface BufferInitConfig {
     name: string;
@@ -11,13 +12,16 @@ export class BufferManager {
 
     device: GPUDevice;
     buffers: Map<string, GPUBuffer>;
-    readonly maxSize: number;
+    readonly limits: BufferLimits;
 
     constructor(device: GPUDevice) {
         this.device = device;
         this.buffers = new Map();
-        this.maxSize = device.limits.maxStorageBufferBindingSize;
-
+        this.limits = {
+            maxBufferSize: device.limits.maxStorageBufferBindingSize,
+            maxUniformBufferBindingSize: device.limits.maxUniformBufferBindingSize,
+            maxStorageBufferBindingSize: device.limits.maxStorageBufferBindingSize,
+        };
     }
 
     initBuffers(configs: BufferInitConfig[]): void {
@@ -37,7 +41,16 @@ export class BufferManager {
     }
 
     createBuffer(name: string, requestedSize: number, usage: GPUBufferUsageFlags): GPUBuffer {
-        const size = Math.min(requestedSize, this.maxSize);
+        let maxAllowedSize = this.limits.maxBufferSize;
+
+        if (usage & GPUBufferUsage.UNIFORM) {
+            maxAllowedSize = this.limits.maxUniformBufferBindingSize;
+        } else if (usage & GPUBufferUsage.STORAGE) {
+            maxAllowedSize = this.limits.maxStorageBufferBindingSize;
+        }
+    
+        const size = Math.min(requestedSize, maxAllowedSize);
+        
         const buffer = this.device.createBuffer({
             label: `buffer-${name}`,
             size,
