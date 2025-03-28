@@ -36,15 +36,17 @@ async function main() {
 
     await renderer.init();
 
-    let sceneLoader = new SceneLoader(SceneWorker);
+    let sceneLoader = setupSceneLoader();
+    
     const treeDepth = 5; // Don't set above 8! 
 
     function setupSceneLoader(): SceneLoader {
         const newLoader = new SceneLoader(SceneWorker);
         newLoader.setCallbacks({
-            onPointsLoaded: ({ points, colors, bounds }) => {
+            onPointsLoaded: ({ points, colors, classification, bounds }) => {
                 scene.points = points;
                 scene.colors = colors;
+                scene.classification = classification;
                 scene.bounds = bounds;
     
                 scene.focusCameraOnPointCloud();
@@ -98,6 +100,25 @@ async function main() {
             reader.readAsArrayBuffer(file);
         }
     });
+
+    document.getElementById("clear-cache")?.addEventListener("click", () => {
+        const dbName = "PointCloudCache";
+    
+        const request = indexedDB.deleteDatabase(dbName);
+    
+        request.onsuccess = () => {
+            console.log(`IndexedDB "${dbName}" deleted successfully.`);
+        };
+    
+        request.onerror = () => {
+            console.error(`Failed to delete IndexedDB "${dbName}".`, request.error);
+        };
+    
+        request.onblocked = () => {
+            console.warn(`Delete blocked. Please close all other tabs using this database.`);
+        };
+    });
+
     const url = "/model/80049_1525964_M-34-63-B-b-1-4-4-3.laz"
     sceneLoader.worker.postMessage({ type: "load-url", url });
 }

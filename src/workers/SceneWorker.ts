@@ -21,28 +21,33 @@ self.onmessage = async (e) => {
                 const cached = await loadFromCache(url);
                 if (cached) {
                     const bounds = calculateBounds(cached.points);
-                    postMessage({ type: "loaded", points: cached.points, colors: cached.colors, bounds });
+                    postMessage(
+                        { type: "loaded", ...cached, bounds },
+                        [cached.points.buffer, cached.colors?.buffer, cached.classification?.buffer].filter(Boolean)
+                    );
                     return;
                 }
 
-                const { points: rawPoints, colors: rawColors } = await loadFromFile(url);
-                const { points, colors, bounds } = sortPointCloud(rawPoints, rawColors);
+                const { points: rawPoints, colors: rawColors, classification: rawClassification } = await loadFromFile(url);
+                const { points, colors, classification, bounds } = sortPointCloud(rawPoints, rawColors, rawClassification);
 
-                storeInCache(url, points, colors);
-                postMessage({ type: "loaded", points, colors, bounds });
+                await storeInCache(url, points, colors, classification);
+                self.postMessage(
+                    { type: "loaded", points, colors, classification, bounds },
+                    [points.buffer, colors.buffer, classification.buffer]
+                );
                 return;
             }
 
             case "load-arraybuffer": {
                 const { buffer, name } = msg;
 
-                const { points: rawPoints, colors: rawColors } = await loadFromBuffer(buffer);
-                const { points: sortedPoints, colors: sortedColors, bounds } = sortPointCloud(rawPoints, rawColors);
-
+                const { points: rawPoints, colors: rawColors, classification: rawClassification } = await loadFromBuffer(buffer);
+                const { points, colors, classification, bounds } = sortPointCloud(rawPoints, rawColors, rawClassification);
 
                 self.postMessage(
-                    { type: "loaded", points: sortedPoints, colors: sortedColors, bounds },
-                    [sortedPoints.buffer, sortedColors.buffer]
+                    { type: "loaded", points, colors, classification, bounds },
+                    [points.buffer, colors.buffer, classification.buffer]
                 );
                 return;
             }
@@ -73,9 +78,14 @@ self.onmessage = async (e) => {
     }
 };
 
-function loadFromCache(url: string): Promise<{ points: Float32Array; colors: Float32Array } | null> {
+function loadFromCache(url: string): Promise<{
+    points: Float32Array;
+    colors: Float32Array;
+    classification: Uint32Array;
+} | null> {
     return new Promise((resolve, reject) => {
         const request = indexedDB.open("PointCloudCache", 1);
+
         request.onupgradeneeded = () => {
             const db = request.result;
             if (!db.objectStoreNames.contains("pointData")) {
@@ -90,35 +100,60 @@ function loadFromCache(url: string): Promise<{ points: Float32Array; colors: Flo
 
             const pointsKey = url + "_points";
             const colorsKey = url + "_colors";
+            const classificationKey = url + "_classification";
 
-            console.log(`Checking cache for: ${pointsKey} and ${colorsKey}`);
+            const getAsync = <T>(key: string): Promise<T | null> =>
+                new Promise((res, rej) => {
+                    const req = store.get(key);
+                    req.onsuccess = () => res(req.result ?? null);
+                    req.onerror = () => rej(req.error);
+                });
 
-            const pointsRequest = store.get(url + "_points");
-            const colorsRequest = store.get(url + "_colors");
-
-            pointsRequest.onsuccess = () => {
-                colorsRequest.onsuccess = () => {
-                    if (pointsRequest.result && colorsRequest.result) {
-                        console.log(`Loaded from IndexedDB: ${pointsKey}, ${colorsKey}`);
-                        resolve({
-                            points: new Float32Array(pointsRequest.result),
-                            colors: new Float32Array(colorsRequest.result)
-                        });
-                    } else {
-                        console.warn(`No cache found for: ${pointsKey}, ${colorsKey}`);
+            Promise.all([
+                getAsync<ArrayBuffer>(pointsKey),
+                getAsync<ArrayBuffer>(colorsKey),
+                getAsync<ArrayBuffer>(classificationKey),
+            ])
+                .then(([pointsBuf, colorsBuf, classBuf]) => {
+                    if (!pointsBuf) {
+                        console.warn("Points not found in cache.");
                         resolve(null);
+                        return;
                     }
-                };
-            };
 
-            transaction.onerror = () => reject(transaction.error);
+                    const points = new Float32Array(pointsBuf);
+                    const numPoints = points.length / 4;
+
+                    // Fallback colors: white (1,1,1,1)
+                    const colors = colorsBuf
+                        ? new Float32Array(colorsBuf)
+                        : (() => {
+                            const fallback = new Float32Array(numPoints * 4);
+                            for (let i = 0; i < numPoints; i++) {
+                                fallback[i * 4 + 0] = 255;
+                                fallback[i * 4 + 1] = 255;
+                                fallback[i * 4 + 2] = 255;
+                                fallback[i * 4 + 3] = 1;
+                            }
+                            return fallback;
+                        })();
+
+                    // Fallback classification: 0
+                    const classification = classBuf
+                        ? new Uint32Array(classBuf)
+                        : new Uint32Array(numPoints).fill(0);
+
+                    resolve({ points, colors, classification });
+                })
+                .catch(reject);
         };
 
         request.onerror = () => reject(request.error);
     });
 }
 
-async function loadFromFile(url: string): Promise<{ points: Float32Array, colors: Float32Array }> {
+
+async function loadFromFile(url: string): Promise<{ points: Float32Array, colors: Float32Array, classification: Uint32Array }> {
     console.log(`Fetching binary data from: ${url}`);
 
     // Fetch the LAZ/LAS file as an ArrayBuffer
@@ -130,14 +165,15 @@ async function loadFromFile(url: string): Promise<{ points: Float32Array, colors
     return parseLASPoints(arrayBuffer);
 }
 
-async function loadFromBuffer(buffer: ArrayBuffer): Promise<{ points: Float32Array, colors: Float32Array | null }> {
+async function loadFromBuffer(buffer: ArrayBuffer): Promise<{ points: Float32Array, colors: Float32Array, classification: Uint32Array }> {
     console.log("Successfully fetched file, initializing LAS/LAZ parser...");
     return parseLASPoints(buffer);
 }
 
 async function parseLASPoints(arrayBuffer: ArrayBuffer): Promise<{
-    points: Float32Array;
-    colors: Float32Array
+    points: Float32Array,
+    colors: Float32Array,
+    classification: Uint32Array
 }> {
     lasFile = new LASFile(arrayBuffer);
     await lasFile.open();
@@ -149,7 +185,8 @@ async function parseLASPoints(arrayBuffer: ArrayBuffer): Promise<{
     const decoder = new LASDecoder(data.buffer, totalPoints, header);
 
     const points = new Float32Array(totalPoints * 4);
-    let colors: Float32Array = new Float32Array(totalPoints * 4);
+    const colors: Float32Array = new Float32Array(totalPoints * 4);
+    const classification = new Uint32Array(totalPoints);
 
     let extractedCount = 0;
     for (let i = 0; i < totalPoints; i++) {
@@ -179,16 +216,28 @@ async function parseLASPoints(arrayBuffer: ArrayBuffer): Promise<{
             colors.set([255, 255, 255, 1], extractedCount * 4);
         }
 
+        if (point.classification) {
+            classification[extractedCount] = point.classification;
+        } else {
+            classification[extractedCount] = 0;
+        }
+
         extractedCount++;
     }
 
     await lasFile.close();
-    return { points, colors };
+    return { points, colors, classification };
 }
 
-async function storeInCache(url: string, points: Float32Array, colors: Float32Array) {
+async function storeInCache(
+    url: string,
+    points: Float32Array,
+    colors?: Float32Array | null,
+    classification?: Uint32Array | null
+): Promise<void> {
     return new Promise((resolve, reject) => {
         const request = indexedDB.open("PointCloudCache", 1);
+
         request.onupgradeneeded = () => {
             const db = request.result;
             if (!db.objectStoreNames.contains("pointData")) {
@@ -202,9 +251,16 @@ async function storeInCache(url: string, points: Float32Array, colors: Float32Ar
             const store = transaction.objectStore("pointData");
 
             store.put(points.buffer, url + "_points");
-            store.put(colors.buffer, url + "_colors");
 
-            transaction.oncomplete = () => resolve("Cached successfully!");
+            if (colors) {
+                store.put(colors.buffer, url + "_colors");
+            }
+
+            if (classification) {
+                store.put(classification.buffer, url + "_classification");
+            }
+
+            transaction.oncomplete = () => resolve();
             transaction.onerror = () => reject(transaction.error);
         };
 
@@ -232,23 +288,36 @@ function calculateBounds(points: Float32Array): Bounds {
     });
 }
 
-function sortPointCloud(points: Float32Array, colors: Float32Array): { points: Float32Array, colors: Float32Array, bounds: Bounds } {
+function sortPointCloud(
+    points: Float32Array,
+    colors: Float32Array,
+    classification: Uint32Array
+): {
+    points: Float32Array,
+    colors: Float32Array,
+    classification: Uint32Array,
+    bounds: Bounds
+} {
     const bounds = calculateBounds(points);
     const sorter = new MortonSorter();
     const { sortedPoints, sortedIndices } = sorter.sort(points, bounds);
-    const sortedColors = reorderFromSortedIndices(colors, sortedIndices);
-    return { points: sortedPoints, colors: sortedColors, bounds };
+    const sortedColors = reorderFromSortedIndices(colors, sortedIndices, 4);
+    const sortedClassification = reorderFromSortedIndices(classification, sortedIndices, 1);
+    return { points: sortedPoints, colors: sortedColors, classification: sortedClassification, bounds };
 }
 
-function reorderFromSortedIndices(arr: Float32Array, sortedIndices: Uint32Array): Float32Array {
-    const colorSize = 4;
-    const sortedColors = new Float32Array(arr.length);
+function reorderFromSortedIndices<T extends Float32Array | Uint32Array>(
+    arr: T,
+    sortedIndices: Uint32Array,
+    tupleSize: number
+): T {
+    const sorted = new (arr.constructor as { new(length: number): T })(arr.length);
     sortedIndices.forEach((oldIndex, newIndex) => {
-        const oldOffset = oldIndex * colorSize;
-        const newOffset = newIndex * colorSize;
-        sortedColors.set(arr.subarray(oldOffset, oldOffset + colorSize), newOffset);
+        const oldOffset = oldIndex * tupleSize;
+        const newOffset = newIndex * tupleSize;
+        sorted.set(arr.subarray(oldOffset, oldOffset + tupleSize), newOffset);
     });
-    return sortedColors;
+    return sorted;
 }
 
 function createQuadtree(points: Float32Array, bounds: Bounds, depth: number): ArrayBuffer {

@@ -9,8 +9,9 @@ export class Scene {
     camera: Camera
 
     points: Float32Array;
-    colors: Float32Array | null;
+    colors: Float32Array;
     indices: Uint32Array;
+    classification: Uint32Array;
     nodeToTriangles: Uint32Array;
 
     triangleCount: number;
@@ -25,6 +26,7 @@ export class Scene {
         this.points = new Float32Array();
         this.colors = new Float32Array();
         this.indices = new Uint32Array();
+        this.classification = new Uint32Array();
         this.nodeToTriangles = new Uint32Array();
         this.triangleCount = 0;
         this.bounds = {
@@ -54,6 +56,7 @@ export class Scene {
         this.points = new Float32Array();
         this.colors = new Float32Array();
         this.indices = new Uint32Array();
+        this.classification = new Uint32Array();
         this.nodeToTriangles = new Uint32Array();
         this.triangleCount = 0;
         this.bounds = {

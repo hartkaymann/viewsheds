@@ -91,6 +91,11 @@ export class Renderer {
                 usage: GPUBufferUsage.VERTEX | GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
             },
             {
+                name: "classification",
+                size: 4,
+                usage: GPUBufferUsage.VERTEX | GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+            },
+            {
                 name: "indices",
                 size: this.scene.indices.byteLength,
                 usage: GPUBufferUsage.INDEX | GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
@@ -349,6 +354,16 @@ export class Renderer {
                                     format: 'float32x4'
                                 }
                             ]
+                        },
+                        {
+                            arrayStride: 4, // 1 uint32 @ 4 bytes
+                            attributes: [
+                                {
+                                    shaderLocation: 2, // Classification
+                                    offset: 0,
+                                    format: 'uint32'
+                                }
+                            ]
                         }
                     ]
                 },
@@ -546,6 +561,9 @@ export class Renderer {
 
         this.bufferManager.resize("colors", this.scene.colors.byteLength);
         this.bufferManager.write("colors", this.scene.colors);
+
+        this.bufferManager.resize("classification", this.scene.classification.byteLength);
+        this.bufferManager.write("classification", this.scene.classification);
 
         this.bufferManager.resize("point_visibility", Math.ceil(this.scene.points.length / 3 / 32) * Uint32Array.BYTES_PER_ELEMENT);
 
@@ -879,6 +897,7 @@ export class Renderer {
             renderPass.setBindGroup(1, this.bindGroupsManager.getGroup("points"));
             renderPass.setVertexBuffer(0, this.bufferManager.get("points"));
             renderPass.setVertexBuffer(1, this.bufferManager.get("colors"));
+            renderPass.setVertexBuffer(2, this.bufferManager.get("classification"));
             const pointsToDraw = this.bufferManager.get("points").size / 16;
             renderPass.draw(pointsToDraw, 1);
         } else if (this.canRender.mesh && renderMesh) {

@@ -22,7 +22,6 @@ fn getBoolean(index: u32) -> bool {
 struct VertexOutput {
   @builtin(position) position: vec4f,
   @location(0) color: vec4f,
-  // @location(1) class: u32,
 };
 
 fn randomColor(seed: u32) -> vec3f {
@@ -35,7 +34,12 @@ fn randomColor(seed: u32) -> vec3f {
 }
 
 @vertex
-fn main(@location(0) position: vec4f, @location(1) color: vec4f, @builtin(vertex_index) vIndex: u32) -> VertexOutput {
+fn main(
+  @location(0) position: vec4f, 
+  @location(1) color: vec4f, 
+  @location(2) classification: u32,
+  @builtin(vertex_index) vIndex: u32
+  ) -> VertexOutput {
   var output: VertexOutput;
   
   output.position = uniforms.projectionMatrix * uniforms.viewMatrix * position;
@@ -54,6 +58,11 @@ fn main(@location(0) position: vec4f, @location(1) color: vec4f, @builtin(vertex
     case 2u: { // Quadtree node
       let nodeIndex = pointToNodeBuffer[vIndex];
       output.color = vec4f(randomColor(nodeIndex), 1.0);
+    }
+
+    case 3u: { // Classification mode
+      let classIndex = classification;
+      output.color = vec4f(randomColor(classIndex), 1.0);
     }
 
 

@@ -4,6 +4,7 @@ export interface SceneLoaderCallbacks {
     onPointsLoaded?: (data: {
         points: Float32Array;
         colors: Float32Array;
+        classification: Uint32Array;
         bounds: Bounds;
     }) => void;
     onTreeBuilt?: (treeData: any) => void;
