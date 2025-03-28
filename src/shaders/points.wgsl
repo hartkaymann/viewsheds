@@ -21,7 +21,8 @@ fn getBoolean(index: u32) -> bool {
 
 struct VertexOutput {
   @builtin(position) position: vec4f,
-  @location(0) color: vec4f
+  @location(0) color: vec4f,
+  // @location(1) class: u32,
 };
 
 fn randomColor(seed: u32) -> vec3f {
@@ -54,6 +55,8 @@ fn main(@location(0) position: vec4f, @location(1) color: vec4f, @builtin(vertex
       let nodeIndex = pointToNodeBuffer[vIndex];
       output.color = vec4f(randomColor(nodeIndex), 1.0);
     }
+
+
     default: {
       output.color = vec4f(1.0, 1.0, 1.0, 1.0);
     }

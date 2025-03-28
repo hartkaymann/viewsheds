@@ -7,6 +7,8 @@ import { MortonSorter, QuadTree } from "../Optimization";
 import { Bounds } from "../types/types";
 import Delaunator from "delaunator";
 
+let lasFile: LASFile | null = null;
+
 self.onmessage = async (e) => {
     const msg = e.data;
     try {
@@ -58,6 +60,13 @@ self.onmessage = async (e) => {
                 postMessage({ type: "triangulated", ...result });
                 return;
             }
+
+            case "shutdown":
+                if (lasFile) {
+                    lasFile.close();
+                }
+                self.close();
+                break;
         }
     } catch (err) {
         postMessage({ type: "error", error: (err as Error).message });
@@ -130,7 +139,7 @@ async function parseLASPoints(arrayBuffer: ArrayBuffer): Promise<{
     points: Float32Array;
     colors: Float32Array
 }> {
-    const lasFile = new LASFile(arrayBuffer);
+    lasFile = new LASFile(arrayBuffer);
     await lasFile.open();
 
     const header = await lasFile.getHeader();
@@ -167,7 +176,7 @@ async function parseLASPoints(arrayBuffer: ArrayBuffer): Promise<{
             colors[extractedCount * 4 + 2] = color[2];
             colors[extractedCount * 4 + 3] = 1.0;
         } else {
-            colors.set([1, 1, 1, 1], extractedCount * 4);
+            colors.set([255, 255, 255, 1], extractedCount * 4);
         }
 
         extractedCount++;

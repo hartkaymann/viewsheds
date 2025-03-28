@@ -36,36 +36,43 @@ async function main() {
 
     await renderer.init();
 
-    const sceneLoader = new SceneLoader(SceneWorker);
+    let sceneLoader = new SceneLoader(SceneWorker);
     const treeDepth = 5; // Don't set above 8! 
-    sceneLoader.setCallbacks({
-        onPointsLoaded: ({ points, colors, bounds }) => {
-            scene.points = points;
-            scene.colors = colors;
-            scene.bounds = bounds;
-            
-            scene.focusCameraOnPointCloud();
-            renderer.setPointData();
 
-            sceneLoader.startTreeBuild(points, bounds, treeDepth);
-        },
-
-        onTreeBuilt: (treeData) => {
-            scene.tree = QuadTree.reconstruct(treeData, treeDepth);
-            renderer.setNodeData();
-
-            sceneLoader.startTriangulation(scene.points, treeData, treeDepth);
-        },
-
-        onTriangulationDone: ({ indices, triangleCount, nodeToTriangles }) => {
-            scene.indices = indices;
-            scene.triangleCount = triangleCount;
-            scene.nodeToTriangles = nodeToTriangles;
-
-            renderer.setMeshData();
-            console.log("Triangulation complete");
-        }
-    });
+    function setupSceneLoader(): SceneLoader {
+        const newLoader = new SceneLoader(SceneWorker);
+        newLoader.setCallbacks({
+            onPointsLoaded: ({ points, colors, bounds }) => {
+                scene.points = points;
+                scene.colors = colors;
+                scene.bounds = bounds;
+    
+                scene.focusCameraOnPointCloud();
+                renderer.setPointData();
+    
+                newLoader.startTreeBuild(points, bounds, treeDepth);
+            },
+    
+            onTreeBuilt: (treeData) => {
+                scene.tree = QuadTree.reconstruct(treeData, treeDepth);
+                renderer.setNodeData();
+    
+                newLoader.startTriangulation(scene.points, treeData, treeDepth);
+            },
+    
+            onTriangulationDone: ({ indices, triangleCount, nodeToTriangles }) => {
+                scene.indices = indices;
+                scene.triangleCount = triangleCount;
+                scene.nodeToTriangles = nodeToTriangles;
+    
+                renderer.setMeshData();
+                console.log("Triangulation complete");
+            }
+        });
+    
+        return newLoader;
+    }
+    
 
     const input = document.getElementById("file-input") as HTMLInputElement;
     input.addEventListener("change", (event) => {
@@ -85,6 +92,8 @@ async function main() {
 
             scene.clear();
             renderer.reset();
+            sceneLoader.worker.postMessage({ type: "shutdown" });
+            sceneLoader = setupSceneLoader();
             
             reader.readAsArrayBuffer(file);
         }
@@ -92,6 +101,7 @@ async function main() {
     const url = "/model/80049_1525964_M-34-63-B-b-1-4-4-3.laz"
     sceneLoader.worker.postMessage({ type: "load-url", url });
 }
+
     
 
 main().catch(console.error);
