@@ -35,10 +35,12 @@ async function main() {
     const inputHandler = new InputHandler(canvas, camera, scene);
 
     await renderer.init();
+    renderer.startRendering();
 
     let sceneLoader = setupSceneLoader();
     
-    const treeDepth = 5; // Don't set above 8! 
+    // TODO: rather do the on change per setting than update values all at once!
+    const treeDepth = 6; // Don't set above 8! 
 
     function setupSceneLoader(): SceneLoader {
         const newLoader = new SceneLoader(SceneWorker);

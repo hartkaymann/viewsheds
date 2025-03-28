@@ -13,11 +13,43 @@ canvas#gfx-main {
   border: 1px solid orangered;
 }
 
-div#debug {
-  padding-left: 0.5em;
-}
-
 h2 {
   font-size: 1.5em;
   margin-bottom: 0.2em;
+}
+
+.controls-container,
+.debug-controls {
+  background-color: #2e2e2e;
+  color: #eee;
+  font-family: monospace;
+  border: 1px solid #2c2c2c;
+  margin: 1em;
+  padding: 1em;
+  max-width: 800px;
+}
+
+.controls-container {
+  display: flex;
+  gap: 1em;
+  align-items: center;
+}
+
+.input-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1em;
+  margin-top: 1em;
+}
+
+.input-group label {
+  display: flex;
+  flex-direction: column;
+  font-size: 0.9em;
+}
+
+.toggles label {
+  flex-direction: row;
+  align-items: center;
+  gap: 0.5em;
 }

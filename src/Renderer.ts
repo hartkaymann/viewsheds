@@ -42,20 +42,23 @@ export class Renderer {
     // Scene to render
     scene: Scene
 
-    canRender = {
+    private canRender = {
         gizmo: true,
+        rays: true,
         points: false,
         nodes: false,
         mesh: false,
     };
 
     // Time
-    prevTime = 0;
-    timeAccumulator = 0;
-    readonly timeStep = 1 / 60;
-    fps = 0;
-    fpsLastTime = 0;
-    frameCount = 0;
+    private prevTime = 0;
+    private timeAccumulator = 0;
+    private readonly timeStep = 1 / 60;
+    private fps = 0;
+    private fpsLastTime = 0;
+    private frameCount = 0;
+    private animationFrameId: number | null = null;
+    private running = false;
 
     constructor(canvas: HTMLCanvasElement, scene: Scene, device: GPUDevice) {
         this.canvas = canvas;
@@ -547,12 +550,10 @@ export class Renderer {
         }
 
 
-        const updateButton = document.getElementById("updateValues");
-        updateButton.addEventListener("click", this.updateValues.bind(this));
-        this.updateValues();
-
-        this.runComputePass();
-        this.render();
+        document.getElementById("raySampleInputs")?.addEventListener("change", this.updateRaySamples.bind(this));
+        document.getElementById("originInputs")?.addEventListener("change", this.updateRayOrigin.bind(this));
+        document.getElementById("thetaPhiInputs")?.addEventListener("change", this.updateThetaPhi.bind(this));
+        document.getElementById("renderMode")?.addEventListener("change", this.updateRenderMode.bind(this));
     }
 
     setPointData() {
@@ -772,12 +773,28 @@ export class Renderer {
         });
     }
 
-    render = () => {
-        let currTime = performance.now() * 0.001;
+    startRendering() {
+        if (!this.running) {
+            this.running = true;
+            this.prevTime = performance.now() * 0.001;
+            this.render();
+        }
+    }
 
+    stopRendering() {
+        if (this.animationFrameId !== null) {
+            cancelAnimationFrame(this.animationFrameId);
+            this.animationFrameId = null;
+        }
+        this.running = false;
+    }
+
+    render = () => {
+        if (!this.running) return;
+
+        const currTime = performance.now() * 0.001;
         const deltaTime = currTime - this.prevTime;
         this.prevTime = currTime;
-
         this.timeAccumulator += deltaTime;
 
         while (this.timeAccumulator >= this.timeStep) {
@@ -785,11 +802,10 @@ export class Renderer {
         }
 
         this.calculateFPS(currTime);
-
         this.runRenderPass();
 
-        requestAnimationFrame(this.render);
-    }
+        this.animationFrameId = requestAnimationFrame(this.render);
+    };
 
     async runComputePass() {
         this.bufferManager.clear("ray_nodes");
@@ -911,7 +927,7 @@ export class Renderer {
         // Render rays
         const renderRaysCheckbox = <HTMLInputElement>document.getElementById("renderRays");
         const renderRays = renderRaysCheckbox.checked;
-        if (renderRays) {
+        if (this.canRender.rays && renderRays) {
             renderPass.setPipeline(this.pipelineManager.get<GPURenderPipeline>("render-rays"));
             renderPass.setBindGroup(0, this.bindGroupsManager.getGroup("render"));
             renderPass.draw(2 * this.raySamples[0] * this.raySamples[1], 1);
@@ -1036,6 +1052,99 @@ export class Renderer {
         this.runComputePass();
     }
 
+    updateRaySamples() {
+        const [oldX, oldY] = this.raySamples;
+        this.raySamples[0] = parseInt((<HTMLInputElement>document.getElementById("samplesX")).value);
+        this.raySamples[1] = parseInt((<HTMLInputElement>document.getElementById("samplesY")).value);
+
+        if (oldX !== this.raySamples[0] || oldY !== this.raySamples[1]) {
+            this.resizeRayRelatedBuffers();
+            this.updateRayRelatedBindGroups();
+            this.updateRayWorkgroupsAndPipelines();
+            this.runComputePass();
+        }
+    }
+
+    updateThetaPhi() {
+        const startTheta = parseFloat((<HTMLInputElement>document.getElementById("startTheta")).value);
+        const endTheta = parseFloat((<HTMLInputElement>document.getElementById("endTheta")).value);
+        const startPhi = parseFloat((<HTMLInputElement>document.getElementById("startPhi")).value);
+        const endPhi = parseFloat((<HTMLInputElement>document.getElementById("endPhi")).value);
+        this.device.queue.writeBuffer(this.bufferManager.get("comp_uniforms"), 12, new Float32Array([startTheta, endTheta, startPhi, endPhi]));
+        this.runComputePass();
+    }
+
+
+    updateRayOrigin() {
+        const ox = parseFloat((<HTMLInputElement>document.getElementById("originX")).value);
+        const oy = parseFloat((<HTMLInputElement>document.getElementById("originY")).value);
+        const oz = parseFloat((<HTMLInputElement>document.getElementById("originZ")).value);
+        this.device.queue.writeBuffer(this.bufferManager.get("comp_uniforms"), 0, new Float32Array([ox, oy, oz]));
+        this.runComputePass();
+    }
+    
+    updateRenderMode() {
+        const renderMode = parseInt((<HTMLInputElement>document.getElementById("renderMode")).value);
+        this.bufferManager.write("render_mode", new Uint32Array([renderMode]));
+    }
+
+    resizeRayRelatedBuffers() {
+        this.bufferManager.resize("rays", this.raySamples[0] * this.raySamples[1] * 2 * 4 * 4);
+        this.bufferManager.resize("ray_nodes", this.raySamples[0] * this.raySamples[1] * QuadTree.noMaxNodesHit(this.scene.tree.depth) * 4);
+        this.bufferManager.resize("debug_distance", this.raySamples[0] * this.raySamples[1] * QuadTree.noMaxNodesHit(this.scene.tree.depth) * 4);
+        this.bufferManager.resize("ray_node_counts", this.raySamples[0] * this.raySamples[1] * 4);
+    }
+
+    updateRayRelatedBindGroups() {
+        this.bindGroupsManager.updateGroup("find", [
+            { binding: 1, resource: { buffer: this.bufferManager.get("rays") } },
+            { binding: 2, resource: { buffer: this.bufferManager.get("ray_node_counts") } },
+            { binding: 3, resource: { buffer: this.bufferManager.get("ray_nodes") } },
+        ]);
+
+        this.bindGroupsManager.updateGroup("sort", [
+            { binding: 1, resource: { buffer: this.bufferManager.get("rays") } },
+            { binding: 2, resource: { buffer: this.bufferManager.get("ray_node_counts") } },
+            { binding: 3, resource: { buffer: this.bufferManager.get("ray_nodes") } },
+            { binding: 4, resource: { buffer: this.bufferManager.get("debug_distance") } },
+        ]);
+
+        this.bindGroupsManager.updateGroup("render", [
+            { binding: 5, resource: { buffer: this.bufferManager.get("rays") } }
+        ]);
+    }
+
+    updateRayWorkgroupsAndPipelines() {
+        this.workgroups.update("2d-grid-per-ray", {
+            problemSize: [this.raySamples[0], this.raySamples[1], 1],
+        });
+        this.workgroups.update("workgroup-per-ray", {
+            problemSize: [this.raySamples[0] * this.raySamples[1], 1, 1],
+        });
+        const linearLayout = this.workgroups.getLayout("workgroup-per-ray");
+        const gridLayout = this.workgroups.getLayout("2d-grid-per-ray");
+
+        this.pipelineManager.update("find-leaves", {
+            codeConstants: {
+                WORKGROUP_SIZE_X: gridLayout.workgroupSize[0],
+                WORKGROUP_SIZE_Y: gridLayout.workgroupSize[1],
+                WORKGROUP_SIZE_Z: gridLayout.workgroupSize[2],
+            }
+        });
+
+        this.pipelineManager.update("bitonic-sort", {
+            codeConstants: {
+                WORKGROUP_SIZE: linearLayout.workgroupSize[0],
+            },
+        });
+
+        this.pipelineManager.update("render-nodes", {
+            constants: {
+                RAY_COUNT: this.raySamples[0] * this.raySamples[1],
+            }
+        });
+    }
+
     calculateFPS(currTime: number) {
         this.frameCount++;
 
@@ -1054,10 +1163,13 @@ export class Renderer {
     reset() {
         this.canRender = {
             gizmo: true,
+            rays: true,
             points: false,
             mesh: false,
             nodes: false,
         }
+        this.stopRendering();
         this.init();
+        this.startRendering();
     }
 }

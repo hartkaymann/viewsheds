@@ -12,77 +12,50 @@
 
 <body>
   <div id="container">
+    <span>fps: </span><span id="fps"></span><br>
     <canvas id="gfx-main" width="1280" height="720"></canvas>
-    <input type="file" id="file-input" accept=".laz,.las" />
-    <button id="clear-cache">Clear Cache</button>
-    <div id="debug">
-      <h2>Debug:</h2>
-      <span>fps: </span><span id="fps"></span><br>
-      <div>
-        <label for="samplesX">Samples X:</label>
-        <input type="number" id="samplesX" value="8" step="1" min="1">
-      </div>
-      <div>
-        <label for="samplesY">Samples Y:</label>
-        <input type="number" id="samplesY" value="1" step="1" min="1">
-      </div>
-      <div>
-        <label for="originX">Origin X:</label>
-        <input type="number" id="originX" value="250" step="1">
-      </div>
-      <div>
-        <label for="originY">Origin Y:</label>
-        <input type="number" id="originY" value="100" step="1">
-      </div>
-      <div>
-        <label for="originZ">Origin Z:</label>
-        <input type="number" id="originZ" value="250" step="1">
-      </div>
-      <div>
-        <label for="startTheta">Start Theta:</label>
-        <input type="number" id="startTheta" value="0" step="0.0872665" min="-3.14159" max="3.14159">
-      </div>
-      <div>
-        <label for="endTheta">End Theta:</label>
-        <input type="number" id="endTheta" value="3.14159" step="0.0872665" min="-3.14159" max="3.14159">
-      </div>
-      <div>
-        <label for="startPhi">Start Phi:</label>
-        <input type="number" id="startPhi" value="2.5307285" step="0.0872665" min="0.0" max="3.14159">
-      </div>
-      <div>
-        <label for="endPhi">End Phi:</label>
-        <input type="number" id="endPhi" value="2.7052615" step="0.0872665" min="0.0" max="3.14159">
-      </div>
-      <div>
-        <label for="renderMode">Render Mode:</label>
-        <input type="number" id="renderMode" value="0" step="1" min="0" max="3">
-      </div>
-      <div>
-        <label for="renderPoints">Render Points:</label>
-        <input type="checkbox" id="renderPoints" unchecked>
-      </div>
-      <div>
-        <label for="renderMesh">Render Mesh:</label>
-        <input type="checkbox" id="renderMesh" unchecked>
-      </div>
-      <div>
-        <label for="renderRays">Render Rays:</label>
-        <input type="checkbox" id="renderRays" checked>
-      </div>
-      <div>
-        <label for="showNodes">Show Nodes:</label>
-        <input type="checkbox" id="showNodes" checked>
-      </div>
-      <div>
-        <label for="sortNodes">Sort Nodes:</label>
-        <input type="checkbox" id="sortNodes" checked>
-      </div>
-      <button id="updateValues">Update Values</button>
+
+    <div class="controls-container">
+      <input type="file" id="file-input" accept=".laz,.las" />
+      <button id="clear-cache">Clear Cache</button>
     </div>
-  </div>
-  <div id="debug-table-container"> </div>
-  <script type="module" src="src/main.ts"></script>
+
+    <div id="debug" class="debug-controls">
+      <h2>Debug:</h2>
+
+      <div class="input-group" id="raySampleInputs">
+        <label>Samples X: <input type="number" id="samplesX" value="8" step="1" min="1"></label>
+        <label>Samples Y: <input type="number" id="samplesY" value="1" step="1" min="1"></label>
+      </div>
+
+      <div class="input-group" id="originInputs">
+        <label>Origin X: <input type="number" id="originX" value="250"></label>
+        <label>Origin Y: <input type="number" id="originY" value="100"></label>
+        <label>Origin Z: <input type="number" id="originZ" value="250"></label>
+      </div>
+
+      <div class="input-group" id="thetaPhiInputs">
+        <label>Start Theta: <input type="number" id="startTheta" value="0" step="0.087" min="-3.14" max="3.14"></label>
+        <label>End Theta: <input type="number" id="endTheta" value="3.14159"></label>
+        <label>Start Phi: <input type="number" id="startPhi" value="2.53"></label>
+        <label>End Phi: <input type="number" id="endPhi" value="2.70"></label>
+      </div>
+
+      <div class="input-group" id="renderModeInputs">
+        <label>Render Mode: <input type="number" id="renderMode" value="0" min="0" max="3"></label>
+      </div>
+
+      <div class="input-group toggles">
+        <label><input type="checkbox" id="renderPoints"> Render Points</label>
+        <label><input type="checkbox" id="renderMesh"> Render Mesh</label>
+        <label><input type="checkbox" id="renderRays" checked> Render Rays</label>
+        <label><input type="checkbox" id="showNodes" checked> Show Nodes</label>
+        <label><input type="checkbox" id="sortNodes" checked> Sort Nodes</label>
+      </div>
+    </div>
+
+    <div id="debug-table-container"></div>
+    <script type="module" src="src/main.ts"></script>
 </body>
 
 </html>
