@@ -138,9 +138,9 @@ class QuadTreeNode {
 
                 currentStart = newEnd;
             }
-            else {
-                 console.warn("No points assigned to child node:", child.bounds);
-            }
+            // else {
+            //      console.warn("No points assigned to child node:", child.bounds);
+            // }
         }
     }
 
@@ -187,6 +187,8 @@ class QuadTreeNode {
         }
 
         let filteredTriangleArray = filteredTriangles.length > 0 ? new Uint32Array(filteredTriangles) : null;
+        if (filteredTriangleArray === null) return;
+
         for (const child of this.children) {
             child.assignTriangles(filteredTriangleArray, points, globalTriangleIndexBuffer, filteredTriangleArray);
         }

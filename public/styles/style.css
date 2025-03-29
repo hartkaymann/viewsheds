@@ -1,3 +1,63 @@
+/* Disable page scroll */
+html, body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  overflow: hidden;
+  background: #e4e4e4;
+  color: #0a0a0a;
+}
+
+/* Main horizontal layout */
+#main-layout {
+  display: flex;
+  height: 100vh;
+  width: 100vw;
+  box-sizing: border-box;
+}
+
+/* Left column for canvas + debug table */
+#left-panel {
+  display: flex;
+  flex-direction: column;
+}
+
+/* Match width of canvas and debug-table */
+canvas#gfx-main,
+.debug-table-container {
+  width: 1280px;
+}
+
+#canvas-wrapper {
+  position: relative;
+  display: inline-block;
+}
+
+#fps-counter {
+  position: absolute;
+  top: 4px;
+  left: 4px;
+  background: rgba(0, 0, 0, 0.6);
+  color: white;
+  font-size: 12px;
+  font-family: monospace;
+  padding: 2px 4px;
+  border-radius: 3px;
+  pointer-events: none;
+  z-index: 10;
+}
+
+/* Right panel (controls + debug) */
+#right-panel {
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  background-color: #e4e4e4;
+  max-width: 400px;
+  min-width: 300px;
+}
+
+
 body {
   margin: 0;
   padding: 0;
@@ -7,10 +67,6 @@ body {
 
 div#container {
   padding: 1em;
-}
-
-canvas#gfx-main {
-  border: 1px solid orangered;
 }
 
 h2 {

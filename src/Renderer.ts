@@ -549,11 +549,15 @@ export class Renderer {
             },
         }
 
-
         document.getElementById("raySampleInputs")?.addEventListener("change", this.updateRaySamples.bind(this));
         document.getElementById("originInputs")?.addEventListener("change", this.updateRayOrigin.bind(this));
         document.getElementById("thetaPhiInputs")?.addEventListener("change", this.updateThetaPhi.bind(this));
         document.getElementById("renderMode")?.addEventListener("change", this.updateRenderMode.bind(this));
+
+        this.updateRaySamples();
+        this.updateRayOrigin();
+        this.updateThetaPhi();
+        this.updateRenderMode();
     }
 
     setPointData() {
@@ -970,92 +974,14 @@ export class Renderer {
         this.device.queue.submit([commandEncoder.finish()]);
     }
 
-    updateValues() {
-        let oldSamples = [this.raySamples[0], this.raySamples[1]];
-        this.raySamples[0] = parseFloat((<HTMLInputElement>document.getElementById("samplesX")).value);
-        this.raySamples[1] = parseFloat((<HTMLInputElement>document.getElementById("samplesY")).value);
-        const originX = parseFloat((<HTMLInputElement>document.getElementById("originX")).value);
-        const originY = parseFloat((<HTMLInputElement>document.getElementById("originY")).value);
-        const originZ = parseFloat((<HTMLInputElement>document.getElementById("originZ")).value);
-        const startTheta = parseFloat((<HTMLInputElement>document.getElementById("startTheta")).value);
-        const endTheta = parseFloat((<HTMLInputElement>document.getElementById("endTheta")).value);
-        const startPhi = parseFloat((<HTMLInputElement>document.getElementById("startPhi")).value);
-        const endPhi = parseFloat((<HTMLInputElement>document.getElementById("endPhi")).value);
-        const renderMode = parseFloat((<HTMLInputElement>document.getElementById("renderMode")).value);
-
-        this.device.queue.writeBuffer(this.bufferManager.get("comp_uniforms"), 0, new Float32Array([
-            originX, originY, originZ, // 12
-            startTheta, endTheta, startPhi, endPhi // 32
-        ]));
-        this.device.queue.writeBuffer(this.bufferManager.get("comp_uniforms"), 32, new Uint32Array([
-            this.raySamples[0], this.raySamples[1],  // 40
-        ]));
-
-        this.bufferManager.write("render_mode", new Uint32Array([renderMode]));
-
-        if (oldSamples[0] != this.raySamples[0] || oldSamples[1] != this.raySamples[1]) {
-
-            // Recreate buffers
-            this.bufferManager.resize("rays", this.raySamples[0] * this.raySamples[1] * 2 * 4 * 4);
-            this.bufferManager.resize("ray_nodes", this.raySamples[0] * this.raySamples[1] * QuadTree.noMaxNodesHit(this.scene.tree.depth) * 4);
-            this.bufferManager.resize("debug_distance", this.raySamples[0] * this.raySamples[1] * QuadTree.noMaxNodesHit(this.scene.tree.depth) * 4);
-            this.bufferManager.resize("ray_node_counts", this.raySamples[0] * this.raySamples[1] * 4);
-
-            this.bindGroupsManager.updateGroup("find", [
-                { binding: 1, resource: { buffer: this.bufferManager.get("rays") } },
-                { binding: 2, resource: { buffer: this.bufferManager.get("ray_node_counts") } },
-                { binding: 3, resource: { buffer: this.bufferManager.get("ray_nodes") } },
-            ]);
-
-            this.bindGroupsManager.updateGroup("sort", [
-                { binding: 1, resource: { buffer: this.bufferManager.get("rays") } },
-                { binding: 2, resource: { buffer: this.bufferManager.get("ray_node_counts") } },
-                { binding: 3, resource: { buffer: this.bufferManager.get("ray_nodes") } },
-                { binding: 4, resource: { buffer: this.bufferManager.get("debug_distance") } },
-            ]);
-
-            this.bindGroupsManager.updateGroup("render", [
-                { binding: 5, resource: { buffer: this.bufferManager.get("rays") } }
-            ]);
-
-            this.workgroups.update("2d-grid-per-ray", {
-                problemSize: [this.raySamples[0], this.raySamples[1], 1],
-            });
-            this.workgroups.update("workgroup-per-ray", {
-                problemSize: [this.raySamples[0] * this.raySamples[1], 1, 1],
-            });
-            const linearLayout = this.workgroups.getLayout("workgroup-per-ray");
-            const gridLayout = this.workgroups.getLayout("2d-grid-per-ray");
-
-            this.pipelineManager.update("find-leaves", {
-                codeConstants: {
-                    WORKGROUP_SIZE_X: gridLayout.workgroupSize[0],
-                    WORKGROUP_SIZE_Y: gridLayout.workgroupSize[1],
-                    WORKGROUP_SIZE_Z: gridLayout.workgroupSize[2],
-                }
-            });
-
-            this.pipelineManager.update("bitonic-sort", {
-                codeConstants: {
-                    WORKGROUP_SIZE: linearLayout.workgroupSize[0],
-                },
-            });
-
-            this.pipelineManager.update("render-nodes", {
-                constants: {
-                    RAY_COUNT: this.raySamples[0] * this.raySamples[1],
-                }
-            });
-
-
-        }
-        this.runComputePass();
-    }
-
     updateRaySamples() {
         const [oldX, oldY] = this.raySamples;
         this.raySamples[0] = parseInt((<HTMLInputElement>document.getElementById("samplesX")).value);
         this.raySamples[1] = parseInt((<HTMLInputElement>document.getElementById("samplesY")).value);
+        
+        this.device.queue.writeBuffer(this.bufferManager.get("comp_uniforms"), 32, new Uint32Array([
+            this.raySamples[0], this.raySamples[1],
+        ]));
 
         if (oldX !== this.raySamples[0] || oldY !== this.raySamples[1]) {
             this.resizeRayRelatedBuffers();
@@ -1063,6 +989,7 @@ export class Renderer {
             this.updateRayWorkgroupsAndPipelines();
             this.runComputePass();
         }
+        this.runComputePass();
     }
 
     updateThetaPhi() {
@@ -1073,7 +1000,6 @@ export class Renderer {
         this.device.queue.writeBuffer(this.bufferManager.get("comp_uniforms"), 12, new Float32Array([startTheta, endTheta, startPhi, endPhi]));
         this.runComputePass();
     }
-
 
     updateRayOrigin() {
         const ox = parseFloat((<HTMLInputElement>document.getElementById("originX")).value);
