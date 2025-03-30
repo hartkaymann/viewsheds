@@ -8,12 +8,14 @@ export class Gizmo {
         0, 0, 0, 1, 0, 0, 1, 1, // Z-axis
     ]);
 
-    getModelViewProjection(camera: Camera): {
+    getModelViewProjection(camera: Camera, canvasWidth: number, canvasHeight: number): {
         gmodel: Float32Array;
         gview: Float32Array;
         gprojection: Float32Array;
     } {
-        const aspect = camera.aspect;
+        const gizmoSize = 50;
+        const scaleX = gizmoSize / canvasWidth;
+        const scaleY = gizmoSize / canvasHeight;
 
         const viewRotation = mat3.create();
         mat3.fromMat4(viewRotation, camera.viewMatrix);
@@ -26,14 +28,20 @@ export class Gizmo {
         );
 
         const model = mat4.create();
-        mat4.scale(model, model, vec3.fromValues(0.1, 0.1, 0.1));
+        mat4.scale(model, model, vec3.fromValues(scaleX, scaleY, Math.min(scaleX, scaleY)));
         mat4.multiply(model, model, rotationMatrix);
-        model[12] = aspect - 0.15;
-        model[13] = 0.85;
+
+        const padding = 50;
+        const x = (canvasWidth - gizmoSize / 2 - padding) / canvasWidth;
+        const y = (canvasHeight - gizmoSize / 2 - padding) / canvasHeight;
+
+        model[12] = x;
+        model[13] = y;
 
         const view = mat4.create(); // identity
+
         const projection = mat4.create();
-        mat4.ortho(projection, 0, aspect, 0, 1, -2, 1);
+        mat4.ortho(projection, 0, 1, 0, 1, -2, 1); // normalized screen space
 
         return {
             gmodel: new Float32Array(model),

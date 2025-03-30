@@ -32,13 +32,15 @@ struct QuadTreeNode {
 // @group(0) @binding(6) var<storage, read_write> closestHitBuffer: array<atomic<u32>, 4>;
 // @group(0) @binding(3) var<storage, read> triangleMapping: array<u32>;
 // @group(0) @binding(4) var<storage, read_write> pointVisibilityBuffer: array<atomic<u32>>;
-@group(0) @binding(0) var<storage, read> nodeBuffer: array<QuadTreeNode>;
-@group(0) @binding(1) var<storage, read_write> rayBuffer: array<Ray>;
-@group(0) @binding(2) var<storage, read_write> rayNodeCounts: array<u32>;
-@group(0) @binding(3) var<storage, read_write> rayNodeBuffer: array<u32>;
-@group(0) @binding(4) var<storage, read_write> nodeVisibilityBuffer: array<atomic<u32>>;
+@group(0) @binding(0) var<uniform> uniforms: compUniforms;
 
-@group(0) @binding(5) var<uniform> uniforms: compUniforms;
+@group(1) @binding(0) var<storage, read_write> rayBuffer: array<Ray>;
+
+@group(2) @binding(0) var<storage, read> nodeBuffer: array<QuadTreeNode>;
+@group(2) @binding(1) var<storage, read_write> rayNodeCounts: array<u32>;
+@group(2) @binding(2) var<storage, read_write> rayNodeBuffer: array<u32>;
+@group(2) @binding(3) var<storage, read_write> nodeVisibilityBuffer: array<atomic<u32>>;
+
 
 fn rayAABBIntersection(origin: vec3f, dir: vec3f, pos: vec3f, size: vec3f) -> bool {
     let invDir = 1.0 / dir; // Compute inverse of ray direction
@@ -103,19 +105,7 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
     let baseOffset = rayIndex * BLOCK_SIZE;
     let leafOffset = (1u << (2u * TREE_DEPTH)) / 3u; // bit-shift instead of pow
 
-    let gridSize = vec2f(f32(uniforms.raySamples.x), f32(uniforms.raySamples.y));
-    let id2D = vec2f(f32(id.x) / gridSize.x, f32(id.y) / gridSize.y); 
-    
-    let theta = uniforms.startTheta + id2D.x * (uniforms.endTheta - uniforms.startTheta);
-    let phi = acos(mix(cos(uniforms.startPhi), cos(uniforms.endPhi), id2D.y));
-    
-    let rayPos = uniforms.rayOrigin;
-    let rayDir = normalize(vec3f(
-        cos(theta) * sin(phi), // X
-        cos(phi),              // Y
-        sin(theta) * sin(phi)  // Z
-    ));
-    let ray = Ray(rayPos, 0.0, rayDir);
+    let ray = rayBuffer[rayIndex];
 
     var stackPointer: i32 = 0;
     var stack: array<u32, __MAX_STACK_SIZE__>; 
@@ -153,13 +143,6 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
         }
     }
     rayNodeCounts[rayIndex] = leafCount;
-
-    // Store ray in the buffer
-    let linearIndex = id.x + (id.y * uniforms.raySamples.x);
-    if (linearIndex < arrayLength(&rayBuffer)) {
-        rayBuffer[linearIndex] = Ray(ray.origin, 100.0, ray.direction);
-    }
-
     // let threadIndex = id.z;
 
     // var hit = false;

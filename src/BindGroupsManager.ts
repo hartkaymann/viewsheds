@@ -73,7 +73,8 @@ export class BindGroupManager {
     }
 
     getLayouts(names: string[]): GPUBindGroupLayout[] | undefined {
-        return names.map(name => this.layouts.get(name)).filter(Boolean) as GPUBindGroupLayout[];
+        const layouts = names.map(name => this.layouts.get(name)).filter(Boolean) as GPUBindGroupLayout[];
+        return layouts;
     }
 
     getLayout(name: string): GPUBindGroupLayout | undefined {

@@ -1,8 +1,10 @@
 .debug-table-container {
-    height: 500px;
-    width: 800px;
+    height: 300px;
+    width: 100%;
+    box-sizing: border-box;
+    margin-top: 1em;
     border: 1px solid #2c2c2c;
-    margin: 0 1em;
+
     display: flex;
     flex-direction: column;
     background-color: #2e2e2e;

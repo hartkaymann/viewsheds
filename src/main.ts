@@ -18,7 +18,9 @@ async function main() {
     }
 
     const device = deviceManager.getDevice();
+
     const canvas: HTMLCanvasElement = <HTMLCanvasElement>document.getElementById("gfx-main");
+    const wrapper = document.getElementById('canvas-wrapper')!;
 
     const camera: Camera = new Camera(
         [10, 10, 10],
@@ -29,6 +31,25 @@ async function main() {
         0.1,
         10000
     );
+
+    const devicePixelRatio = window.devicePixelRatio || 1;
+    function updateCanvasSize() {
+        const width = Math.floor(wrapper.clientWidth * devicePixelRatio);
+        const height = Math.floor(wrapper.clientHeight * devicePixelRatio);
+
+        if (canvas.width !== width || canvas.height !== height) {
+            canvas.width = width;
+            canvas.height = height;
+            renderer.resize(width, height);
+        }
+
+        camera.aspect = width / height;
+        camera.setProjection();
+    }
+
+    const resizeObserver = new ResizeObserver(updateCanvasSize);
+    resizeObserver.observe(wrapper);
+
 
     const scene: Scene = new Scene(camera);
     const renderer = new Renderer(canvas, scene, device);
@@ -75,7 +96,6 @@ async function main() {
 
         return newLoader;
     }
-
 
     const input = document.getElementById("file-input") as HTMLInputElement;
     input.addEventListener("change", (event) => {

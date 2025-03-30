@@ -1,3 +1,4 @@
+import generate_rays_src from "./shaders/ray-gen.wgsl"
 import find_leaves_src from "./shaders/find-leaves.wgsl"
 import bitonic_sort_src from "./shaders/bitonic-sort.wgsl"
 
@@ -18,7 +19,6 @@ import { Utils } from "./Utils"
 
 
 export class Renderer {
-
     canvas: HTMLCanvasElement
 
     // Device/Context objects
@@ -28,8 +28,8 @@ export class Renderer {
     renderPassDescriptor: GPURenderPassDescriptor;
 
     //Assets
-    depth_buffer: GPUTexture;
-    depth_buffer_view: GPUTextureView;
+    depthTexture: GPUTexture;
+    depthView: GPUTextureView;
 
     raySamples: Uint32Array = new Uint32Array([1, 1]);
 
@@ -76,11 +76,7 @@ export class Renderer {
         this.context = <GPUCanvasContext>this.canvas.getContext("webgpu");
         this.format = "bgra8unorm";
 
-        this.context.configure({
-            device: this.device,
-            format: this.format,
-            alphaMode: "opaque"
-        });
+        this.configureContext();
 
         this.bufferManager.initBuffers([
             {
@@ -183,14 +179,27 @@ export class Renderer {
         ]);
 
         this.bindGroupsManager.createLayout({
+            name: "compute-uniforms",
+            entries: [
+                { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform" } },
+            ]
+        });
+
+
+        this.bindGroupsManager.createLayout({
+            name: "rays",
+            entries: [
+                { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
+            ]
+        });
+
+        this.bindGroupsManager.createLayout({
             name: "find",
             entries: [
                 { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
                 { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
                 { binding: 2, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
                 { binding: 3, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
-                { binding: 4, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
-                { binding: 5, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform" } },
             ]
         });
 
@@ -199,10 +208,8 @@ export class Renderer {
             entries: [
                 { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
                 { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
-                { binding: 2, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
+                { binding: 2, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
                 { binding: 3, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
-                { binding: 4, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
-                { binding: 5, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform" } },
             ]
         });
 
@@ -244,15 +251,29 @@ export class Renderer {
         });
 
         this.bindGroupsManager.createGroup({
+            name: "compute-uniforms",
+            layoutName: "compute-uniforms",
+            entries: [
+                { binding: 0, resource: { buffer: this.bufferManager.get("comp_uniforms") } },
+            ]
+        });
+
+        this.bindGroupsManager.createGroup({
+            name: "rays",
+            layoutName: "rays",
+            entries: [
+                { binding: 0, resource: { buffer: this.bufferManager.get("rays") } },
+            ]
+        });
+
+        this.bindGroupsManager.createGroup({
             name: "find",
             layoutName: "find",
             entries: [
                 { binding: 0, resource: { buffer: this.bufferManager.get("nodes") } },
-                { binding: 1, resource: { buffer: this.bufferManager.get("rays") } },
-                { binding: 2, resource: { buffer: this.bufferManager.get("ray_node_counts") } },
-                { binding: 3, resource: { buffer: this.bufferManager.get("ray_nodes") } },
-                { binding: 4, resource: { buffer: this.bufferManager.get("node_visibility") } },
-                { binding: 5, resource: { buffer: this.bufferManager.get("comp_uniforms") } },
+                { binding: 1, resource: { buffer: this.bufferManager.get("ray_node_counts") } },
+                { binding: 2, resource: { buffer: this.bufferManager.get("ray_nodes") } },
+                { binding: 3, resource: { buffer: this.bufferManager.get("node_visibility") } },
             ]
         });
 
@@ -261,11 +282,9 @@ export class Renderer {
             layoutName: "sort",
             entries: [
                 { binding: 0, resource: { buffer: this.bufferManager.get("nodes") } },
-                { binding: 1, resource: { buffer: this.bufferManager.get("rays") } },
-                { binding: 2, resource: { buffer: this.bufferManager.get("ray_node_counts") } },
-                { binding: 3, resource: { buffer: this.bufferManager.get("ray_nodes") } },
-                { binding: 4, resource: { buffer: this.bufferManager.get("debug_distance") } },
-                { binding: 5, resource: { buffer: this.bufferManager.get("comp_uniforms") } },
+                { binding: 1, resource: { buffer: this.bufferManager.get("ray_node_counts") } },
+                { binding: 2, resource: { buffer: this.bufferManager.get("ray_nodes") } },
+                { binding: 3, resource: { buffer: this.bufferManager.get("debug_distance") } },
             ]
         });
 
@@ -523,12 +542,12 @@ export class Renderer {
             }
         });
 
-        this.depth_buffer = this.device.createTexture({
+        this.depthTexture = this.device.createTexture({
             size: [this.context.canvas.width, this.context.canvas.height, 1],
             format: "depth24plus",
             usage: GPUTextureUsage.RENDER_ATTACHMENT,
         });
-        this.depth_buffer_view = this.depth_buffer.createView();
+        this.depthView = this.depthTexture.createView();
 
 
         this.renderPassDescriptor = {
@@ -542,7 +561,7 @@ export class Renderer {
                 }
             ],
             depthStencilAttachment: {
-                view: this.depth_buffer_view,
+                view: this.depthView,
                 depthLoadOp: "clear",
                 depthStoreOp: "store",
                 depthClearValue: 1.0,
@@ -552,12 +571,33 @@ export class Renderer {
         document.getElementById("raySampleInputs")?.addEventListener("change", this.updateRaySamples.bind(this));
         document.getElementById("originInputs")?.addEventListener("change", this.updateRayOrigin.bind(this));
         document.getElementById("thetaPhiInputs")?.addEventListener("change", this.updateThetaPhi.bind(this));
+        document.getElementById("run-btn")?.addEventListener("click", this.runComputePass.bind(this));
         document.getElementById("renderMode")?.addEventListener("change", this.updateRenderMode.bind(this));
 
         this.updateRaySamples();
         this.updateRayOrigin();
         this.updateThetaPhi();
+        this.runComputePass();
         this.updateRenderMode();
+    }
+
+    private configureContext() {
+        this.context.configure({
+            device: this.device,
+            format: this.format,
+            alphaMode: "opaque",
+        });
+    }
+
+    private createDepthTexture(width: number, height: number) {
+        this.depthTexture = this.device.createTexture({
+            size: [width, height],
+            format: 'depth24plus',
+            usage: GPUTextureUsage.RENDER_ATTACHMENT,
+        });
+
+        this.depthView = this.depthTexture.createView();
+        this.renderPassDescriptor.depthStencilAttachment.view = this.depthView;
     }
 
     setPointData() {
@@ -593,14 +633,14 @@ export class Renderer {
 
         this.bindGroupsManager.updateGroup("find", [
             { binding: 0, resource: { buffer: this.bufferManager.get("nodes") } },
-            { binding: 3, resource: { buffer: this.bufferManager.get("ray_nodes") } },
-            { binding: 4, resource: { buffer: this.bufferManager.get("node_visibility") } },
+            { binding: 2, resource: { buffer: this.bufferManager.get("ray_nodes") } },
+            { binding: 3, resource: { buffer: this.bufferManager.get("node_visibility") } },
         ]);
 
         this.bindGroupsManager.updateGroup("sort", [
             { binding: 0, resource: { buffer: this.bufferManager.get("nodes") } },
-            { binding: 3, resource: { buffer: this.bufferManager.get("ray_nodes") } },
-            { binding: 4, resource: { buffer: this.bufferManager.get("debug_distance") } },
+            { binding: 2, resource: { buffer: this.bufferManager.get("ray_nodes") } },
+            { binding: 3, resource: { buffer: this.bufferManager.get("debug_distance") } },
         ]);
 
         this.bindGroupsManager.updateGroup("points", [
@@ -664,14 +704,20 @@ export class Renderer {
 
     private setupComputePipelines(): void {
         // === Pipeline Layouts ===
+
+        const pipelineLayoutRays = this.device.createPipelineLayout({
+            label: 'pipeline-layout-rays',
+            bindGroupLayouts: this.bindGroupsManager.getLayouts(["compute-uniforms", "rays"]),
+        });
+
         const pipelineLayoutFind = this.device.createPipelineLayout({
             label: 'pipeline-layout-find',
-            bindGroupLayouts: this.bindGroupsManager.getLayouts(["find"]),
+            bindGroupLayouts: this.bindGroupsManager.getLayouts(["compute-uniforms", "rays", "find"]),
         });
 
         const pipelineLayoutSort = this.device.createPipelineLayout({
             label: 'pipeline-layout-sort',
-            bindGroupLayouts: this.bindGroupsManager.getLayouts(["sort"]),
+            bindGroupLayouts: this.bindGroupsManager.getLayouts(["compute-uniforms", "rays", "sort"]),
         });
 
         // === Workgroup Strategy: 2D tiling for rays ===
@@ -697,6 +743,21 @@ export class Renderer {
         // === Pipeline: findLeaves ===
         const stackSize = 2 * this.scene.tree.depth + 1;
         const gridLayout = this.workgroups.getLayout("2d-grid-per-ray");
+
+        this.pipelineManager.create({
+            name: "generate-rays",
+            type: "compute",
+            layout: pipelineLayoutRays,
+            code: generate_rays_src,
+            codeConstants: {
+                WORKGROUP_SIZE_X: gridLayout.workgroupSize[0],
+                WORKGROUP_SIZE_Y: gridLayout.workgroupSize[1],
+                WORKGROUP_SIZE_Z: gridLayout.workgroupSize[2],
+            },
+            compute: {
+                entryPoint: "main",
+            }
+        });
 
         this.pipelineManager.create({
             name: "find-leaves",
@@ -876,24 +937,48 @@ export class Renderer {
         }
     }
 
-    computeFindLeaves(encoder: GPUComputePassEncoder) {
+    runGenerateRays() {
+        this.bufferManager.clear("rays");
+
+        const computeEncoder: GPUCommandEncoder = this.device.createCommandEncoder();
+        const computePass: GPUComputePassEncoder = computeEncoder.beginComputePass();
+
         const gridLayout = this.workgroups.getLayout("2d-grid-per-ray");
         const dispatchX = gridLayout.dispatchSize[0];
         const dispatchY = gridLayout.dispatchSize[1];
         const dispatchZ = gridLayout.dispatchSize[2];
 
-        encoder.setPipeline(this.pipelineManager.get<GPUComputePipeline>("find-leaves"));
-        encoder.setBindGroup(0, this.bindGroupsManager.getGroup("find"));
-        encoder.dispatchWorkgroups(dispatchX, dispatchY, dispatchZ);
+        computePass.setPipeline(this.pipelineManager.get<GPUComputePipeline>("generate-rays"));
+        computePass.setBindGroup(0, this.bindGroupsManager.getGroup("compute-uniforms"));
+        computePass.setBindGroup(1, this.bindGroupsManager.getGroup("rays"));
+        computePass.dispatchWorkgroups(dispatchX, dispatchY, dispatchZ);
+
+        computePass.end();
+        this.device.queue.submit([computeEncoder.finish()]);
     }
 
-    computebitonicSort(encoder: GPUComputePassEncoder) {
+    computeFindLeaves(pass: GPUComputePassEncoder) {
+        const gridLayout = this.workgroups.getLayout("2d-grid-per-ray");
+        const dispatchX = gridLayout.dispatchSize[0];
+        const dispatchY = gridLayout.dispatchSize[1];
+        const dispatchZ = gridLayout.dispatchSize[2];
+
+        pass.setPipeline(this.pipelineManager.get<GPUComputePipeline>("find-leaves"));
+        pass.setBindGroup(0, this.bindGroupsManager.getGroup("compute-uniforms"));
+        pass.setBindGroup(1, this.bindGroupsManager.getGroup("rays"));
+        pass.setBindGroup(2, this.bindGroupsManager.getGroup("find"));
+        pass.dispatchWorkgroups(dispatchX, dispatchY, dispatchZ);
+    }
+
+    computebitonicSort(pass: GPUComputePassEncoder) {
         const linearLayout = this.workgroups.getLayout("workgroup-per-ray");
         const totalWorkgroups = linearLayout.dispatchSize[0];
 
-        encoder.setPipeline(this.pipelineManager.get<GPUComputePipeline>("bitonic-sort"));
-        encoder.setBindGroup(0, this.bindGroupsManager.getGroup("sort"));
-        encoder.dispatchWorkgroups(totalWorkgroups);
+        pass.setPipeline(this.pipelineManager.get<GPUComputePipeline>("bitonic-sort"));
+        pass.setBindGroup(0, this.bindGroupsManager.getGroup("compute-uniforms"));
+        pass.setBindGroup(1, this.bindGroupsManager.getGroup("rays"));
+        pass.setBindGroup(2, this.bindGroupsManager.getGroup("sort"));
+        pass.dispatchWorkgroups(totalWorkgroups);
     }
 
     runRenderPass() {
@@ -958,7 +1043,8 @@ export class Renderer {
             ],
         };
 
-        const { gmodel, gview, gprojection } = this.scene.gizmo.getModelViewProjection(this.scene.camera);
+        const { gmodel, gview, gprojection } = this.scene.gizmo.getModelViewProjection(
+            this.scene.camera, this.canvas.width, this.canvas.height);
 
         this.bufferManager.write("gizmo_uniforms", gmodel, 0);
         this.bufferManager.write("gizmo_uniforms", gview, 64);
@@ -978,7 +1064,7 @@ export class Renderer {
         const [oldX, oldY] = this.raySamples;
         this.raySamples[0] = parseInt((<HTMLInputElement>document.getElementById("samplesX")).value);
         this.raySamples[1] = parseInt((<HTMLInputElement>document.getElementById("samplesY")).value);
-        
+
         this.device.queue.writeBuffer(this.bufferManager.get("comp_uniforms"), 32, new Uint32Array([
             this.raySamples[0], this.raySamples[1],
         ]));
@@ -987,9 +1073,8 @@ export class Renderer {
             this.resizeRayRelatedBuffers();
             this.updateRayRelatedBindGroups();
             this.updateRayWorkgroupsAndPipelines();
-            this.runComputePass();
         }
-        this.runComputePass();
+        this.runGenerateRays();
     }
 
     updateThetaPhi() {
@@ -998,7 +1083,7 @@ export class Renderer {
         const startPhi = parseFloat((<HTMLInputElement>document.getElementById("startPhi")).value);
         const endPhi = parseFloat((<HTMLInputElement>document.getElementById("endPhi")).value);
         this.device.queue.writeBuffer(this.bufferManager.get("comp_uniforms"), 12, new Float32Array([startTheta, endTheta, startPhi, endPhi]));
-        this.runComputePass();
+        this.runGenerateRays();
     }
 
     updateRayOrigin() {
@@ -1006,9 +1091,9 @@ export class Renderer {
         const oy = parseFloat((<HTMLInputElement>document.getElementById("originY")).value);
         const oz = parseFloat((<HTMLInputElement>document.getElementById("originZ")).value);
         this.device.queue.writeBuffer(this.bufferManager.get("comp_uniforms"), 0, new Float32Array([ox, oy, oz]));
-        this.runComputePass();
+        this.runGenerateRays();
     }
-    
+
     updateRenderMode() {
         const renderMode = parseInt((<HTMLInputElement>document.getElementById("renderMode")).value);
         this.bufferManager.write("render_mode", new Uint32Array([renderMode]));
@@ -1022,21 +1107,27 @@ export class Renderer {
     }
 
     updateRayRelatedBindGroups() {
+        this.bindGroupsManager.updateGroup("rays", [
+            { binding: 0, resource: { buffer: this.bufferManager.get("rays") } },
+        ]);
+
         this.bindGroupsManager.updateGroup("find", [
-            { binding: 1, resource: { buffer: this.bufferManager.get("rays") } },
-            { binding: 2, resource: { buffer: this.bufferManager.get("ray_node_counts") } },
-            { binding: 3, resource: { buffer: this.bufferManager.get("ray_nodes") } },
+            { binding: 1, resource: { buffer: this.bufferManager.get("ray_node_counts") } },
+            { binding: 2, resource: { buffer: this.bufferManager.get("ray_nodes") } },
         ]);
 
         this.bindGroupsManager.updateGroup("sort", [
-            { binding: 1, resource: { buffer: this.bufferManager.get("rays") } },
-            { binding: 2, resource: { buffer: this.bufferManager.get("ray_node_counts") } },
-            { binding: 3, resource: { buffer: this.bufferManager.get("ray_nodes") } },
-            { binding: 4, resource: { buffer: this.bufferManager.get("debug_distance") } },
+            { binding: 1, resource: { buffer: this.bufferManager.get("ray_node_counts") } },
+            { binding: 2, resource: { buffer: this.bufferManager.get("ray_nodes") } },
+            { binding: 3, resource: { buffer: this.bufferManager.get("debug_distance") } },
         ]);
 
         this.bindGroupsManager.updateGroup("render", [
             { binding: 5, resource: { buffer: this.bufferManager.get("rays") } }
+        ]);
+
+        this.bindGroupsManager.updateGroup("nodes", [
+            { binding: 3, resource: { buffer: this.bufferManager.get("ray_nodes") } },
         ]);
     }
 
@@ -1049,6 +1140,14 @@ export class Renderer {
         });
         const linearLayout = this.workgroups.getLayout("workgroup-per-ray");
         const gridLayout = this.workgroups.getLayout("2d-grid-per-ray");
+
+        this.pipelineManager.update("generate-rays", {
+            codeConstants: {
+                WORKGROUP_SIZE_X: gridLayout.workgroupSize[0],
+                WORKGROUP_SIZE_Y: gridLayout.workgroupSize[1],
+                WORKGROUP_SIZE_Z: gridLayout.workgroupSize[2],
+            }
+        });
 
         this.pipelineManager.update("find-leaves", {
             codeConstants: {
@@ -1097,5 +1196,14 @@ export class Renderer {
         this.stopRendering();
         this.init();
         this.startRendering();
+    }
+
+    resize(width: number, height: number) {
+        this.canvas.width = width;
+        this.canvas.height = height;
+
+        this.configureContext();
+
+        this.createDepthTexture(width, height);
     }
 }

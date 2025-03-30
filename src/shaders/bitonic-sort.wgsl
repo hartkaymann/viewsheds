@@ -31,13 +31,15 @@ struct QuadTreeNode {
     triangleCount: u32,
 };
 
-@group(0) @binding(0) var<storage, read> nodeBuffer: array<QuadTreeNode>;
-@group(0) @binding(1) var<storage, read> rayBuffer: array<Ray>;
-@group(0) @binding(2) var<storage, read> rayNodeCounts: array<u32>;
-@group(0) @binding(3) var<storage, read_write> rayNodeBuffer: array<u32>;
-@group(0) @binding(4) var<storage, read_write> debugDistances: array<f32>;
+@group(0) @binding(0) var<uniform> uniforms: compUniforms;
 
-@group(0) @binding(5) var<uniform> uniforms: compUniforms;
+@group(1) @binding(0) var<storage, read_write> rayBuffer: array<Ray>;
+
+@group(2) @binding(0) var<storage, read> nodeBuffer: array<QuadTreeNode>;
+@group(2) @binding(1) var<storage, read> rayNodeCounts: array<u32>;
+@group(2) @binding(2) var<storage, read_write> rayNodeBuffer: array<u32>;
+@group(2) @binding(3) var<storage, read_write> debugDistances: array<f32>;
+
 
 fn rayAABBIntersection(origin: vec3f, dir: vec3f, pos: vec3f, size: vec3f) -> f32 {
     let invDir = 1.0 / dir; // Compute inverse of ray direction
