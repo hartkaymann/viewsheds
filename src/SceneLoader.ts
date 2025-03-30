@@ -2,15 +2,16 @@ import { Bounds } from "./types/types";
 
 export interface SceneLoaderCallbacks {
     onPointsLoaded?: (data: {
-        points: Float32Array;
-        colors: Float32Array;
-        classification: Uint32Array;
+        points: Float32Array,
+        colors: Float32Array,
+        classification: Uint32Array,
         bounds: Bounds;
     }) => void;
-    onTreeBuilt?: (treeData: any) => void;
+    onTreeBuilt?: (treeData: ArrayBuffer) => void;
     onTriangulationDone?: (data: {
-        indices: Uint32Array;
-        triangleCount: number;
+        indices: Uint32Array,
+        triangleCount: number,
+        treeData: ArrayBuffer,
         nodeToTriangles: Uint32Array;
     }) => void;
     onError?: (error: string) => void;
@@ -39,6 +40,7 @@ export class SceneLoader {
                     this.callbacks.onTriangulationDone?.({
                         indices: msg.indices,
                         triangleCount: msg.triangleCount,
+                        treeData: msg.tree,
                         nodeToTriangles: msg.nodeToTriangles,
                     });
                     break;

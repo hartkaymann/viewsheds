@@ -1,12 +1,13 @@
-import generate_rays_src from "./shaders/ray-gen.wgsl"
-import find_leaves_src from "./shaders/find-leaves.wgsl"
-import bitonic_sort_src from "./shaders/bitonic-sort.wgsl"
+import generate_rays_src from "./shaders/compute/ray-gen.wgsl"
+import find_leaves_src from "./shaders/compute/find-leaves.wgsl"
+import bitonic_sort_src from "./shaders/compute/bitonic-sort.wgsl"
+import collision_src from "./shaders/compute/collision.wgsl"
 
-import wireframe_src from "./shaders/wireframe.wgsl"
-import points_src from "./shaders/points.wgsl"
-import rays_src from "./shaders/rays.wgsl"
-import gizmo_src from "./shaders/gizmo.wgsl"
-import nodes_src from "./shaders/nodes.wgsl"
+import wireframe_src from "./shaders/render/wireframe.wgsl"
+import points_src from "./shaders/render/points.wgsl"
+import rays_src from "./shaders/render/rays.wgsl"
+import gizmo_src from "./shaders/render/gizmo.wgsl"
+import nodes_src from "./shaders/render/nodes.wgsl"
 
 import { Scene } from "./Scene";
 import { WorkgroupStrategy } from "./types/types"
@@ -214,6 +215,16 @@ export class Renderer {
         });
 
         this.bindGroupsManager.createLayout({
+            name: "collision",
+            entries: [
+                { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
+                { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
+                { binding: 2, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
+                { binding: 3, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
+            ]
+        });
+
+        this.bindGroupsManager.createLayout({
             name: "render",
             entries: [
                 { binding: 0, visibility: GPUShaderStage.VERTEX, buffer: { type: "read-only-storage" } },
@@ -285,6 +296,17 @@ export class Renderer {
                 { binding: 1, resource: { buffer: this.bufferManager.get("ray_node_counts") } },
                 { binding: 2, resource: { buffer: this.bufferManager.get("ray_nodes") } },
                 { binding: 3, resource: { buffer: this.bufferManager.get("debug_distance") } },
+            ]
+        });
+
+        this.bindGroupsManager.createGroup({
+            name: "collision",
+            layoutName: "collision",
+            entries: [
+                { binding: 0, resource: { buffer: this.bufferManager.get("points") } },
+                { binding: 1, resource: { buffer: this.bufferManager.get("indices") } },
+                { binding: 2, resource: { buffer: this.bufferManager.get("node_to_triangle") } },
+                { binding: 3, resource: { buffer: this.bufferManager.get("point_visibility") } },
             ]
         });
 
@@ -571,7 +593,8 @@ export class Renderer {
         document.getElementById("raySampleInputs")?.addEventListener("change", this.updateRaySamples.bind(this));
         document.getElementById("originInputs")?.addEventListener("change", this.updateRayOrigin.bind(this));
         document.getElementById("thetaPhiInputs")?.addEventListener("change", this.updateThetaPhi.bind(this));
-        document.getElementById("run-btn")?.addEventListener("click", this.runComputePass.bind(this));
+        document.getElementById("runNodes")?.addEventListener("click", this.runComputePass.bind(this));
+        document.getElementById("runPoints")?.addEventListener("click", this.runCollision.bind(this));
         document.getElementById("renderMode")?.addEventListener("change", this.updateRenderMode.bind(this));
 
         this.updateRaySamples();
@@ -617,19 +640,25 @@ export class Renderer {
             { binding: 2, resource: { buffer: this.bufferManager.get("point_visibility") } },
         ]);
 
+        this.bindGroupsManager.updateGroup("collision", [
+            { binding: 0, resource: { buffer: this.bufferManager.get("points") } },
+            { binding: 3, resource: { buffer: this.bufferManager.get("point_visibility") } },
+        ]);
+
         this.canRender.points = true;
     }
 
-    setNodeData() {
-        this.bufferManager.resize("nodes", QuadTree.totalNodes(this.scene.tree.depth) * QuadTree.BYTES_PER_NODE * 4);
+    setNodeData(resize: boolean = true) {
+        if (resize) {
+            this.bufferManager.resize("nodes", QuadTree.totalNodes(this.scene.tree.depth) * QuadTree.BYTES_PER_NODE * 4);
+            this.bufferManager.resize("point_to_node", this.scene.tree.root.pointCount * 4);
+            this.bufferManager.resize("node_visibility", QuadTree.leafNodes(this.scene.tree.depth) / 32 * Uint32Array.BYTES_PER_ELEMENT);
+            this.bufferManager.resize("ray_nodes", this.raySamples[0] * this.raySamples[1] * QuadTree.noMaxNodesHit(this.scene.tree.depth) * 4);
+            this.bufferManager.resize("debug_distance", this.raySamples[0] * this.raySamples[1] * QuadTree.noMaxNodesHit(this.scene.tree.depth) * 4);
+        }
+
         this.bufferManager.write("nodes", this.scene.tree.flatten());
-
-        this.bufferManager.resize("point_to_node", this.scene.tree.root.pointCount * 4);
         this.bufferManager.write("point_to_node", this.scene.tree.mapPointsToNodes());
-
-        this.bufferManager.resize("node_visibility", QuadTree.leafNodes(this.scene.tree.depth) / 32 * Uint32Array.BYTES_PER_ELEMENT);
-        this.bufferManager.resize("ray_nodes", this.raySamples[0] * this.raySamples[1] * QuadTree.noMaxNodesHit(this.scene.tree.depth) * 4);
-        this.bufferManager.resize("debug_distance", this.raySamples[0] * this.raySamples[1] * QuadTree.noMaxNodesHit(this.scene.tree.depth) * 4);
 
         this.bindGroupsManager.updateGroup("find", [
             { binding: 0, resource: { buffer: this.bufferManager.get("nodes") } },
@@ -699,6 +728,11 @@ export class Renderer {
             { binding: 1, resource: { buffer: this.bufferManager.get("indices") } },
         ]);
 
+        this.bindGroupsManager.updateGroup("collision", [
+            { binding: 1, resource: { buffer: this.bufferManager.get("indices") } },
+            { binding: 2, resource: { buffer: this.bufferManager.get("node_to_triangle") } },
+        ]);
+
         this.canRender.mesh = true;
     }
 
@@ -719,6 +753,12 @@ export class Renderer {
             label: 'pipeline-layout-sort',
             bindGroupLayouts: this.bindGroupsManager.getLayouts(["compute-uniforms", "rays", "sort"]),
         });
+
+        const pipelineLayoutCollision = this.device.createPipelineLayout({
+            label: 'pipeline-layout-collision',
+            bindGroupLayouts: this.bindGroupsManager.getLayouts(["compute-uniforms", "rays", "sort", "collision"]),
+        });
+
 
         // === Workgroup Strategy: 2D tiling for rays ===
         const tile2DGridPerRay = (): WorkgroupStrategy =>
@@ -773,6 +813,25 @@ export class Renderer {
                 WORKGROUP_SIZE_Y: gridLayout.workgroupSize[1],
                 WORKGROUP_SIZE_Z: gridLayout.workgroupSize[2],
                 MAX_STACK_SIZE: stackSize,
+            },
+            compute: {
+                entryPoint: "main",
+            }
+        });
+
+        
+        this.pipelineManager.create({
+            name: "collision",
+            type: "compute",
+            layout: pipelineLayoutCollision,
+            code: collision_src,
+            constants: {
+                BLOCK_SIZE: QuadTree.noMaxNodesHit(this.scene.tree.depth),
+            },
+            codeConstants: {
+                WORKGROUP_SIZE_X: gridLayout.workgroupSize[0],
+                WORKGROUP_SIZE_Y: gridLayout.workgroupSize[1],
+                WORKGROUP_SIZE_Z: gridLayout.workgroupSize[2],
             },
             compute: {
                 entryPoint: "main",
@@ -951,6 +1010,28 @@ export class Renderer {
         computePass.setPipeline(this.pipelineManager.get<GPUComputePipeline>("generate-rays"));
         computePass.setBindGroup(0, this.bindGroupsManager.getGroup("compute-uniforms"));
         computePass.setBindGroup(1, this.bindGroupsManager.getGroup("rays"));
+        computePass.dispatchWorkgroups(dispatchX, dispatchY, dispatchZ);
+
+        computePass.end();
+        this.device.queue.submit([computeEncoder.finish()]);
+    }
+
+    runCollision() {
+        this.bufferManager.clear("point_visibility");
+
+        const computeEncoder: GPUCommandEncoder = this.device.createCommandEncoder();
+        const computePass: GPUComputePassEncoder = computeEncoder.beginComputePass();
+
+        const gridLayout = this.workgroups.getLayout("2d-grid-per-ray");
+        const dispatchX = gridLayout.dispatchSize[0];
+        const dispatchY = gridLayout.dispatchSize[1];
+        const dispatchZ = gridLayout.dispatchSize[2];
+
+        computePass.setPipeline(this.pipelineManager.get<GPUComputePipeline>("collision"));
+        computePass.setBindGroup(0, this.bindGroupsManager.getGroup("compute-uniforms"));
+        computePass.setBindGroup(1, this.bindGroupsManager.getGroup("rays"));
+        computePass.setBindGroup(2, this.bindGroupsManager.getGroup("sort"));
+        computePass.setBindGroup(3, this.bindGroupsManager.getGroup("collision"));
         computePass.dispatchWorkgroups(dispatchX, dispatchY, dispatchZ);
 
         computePass.end();

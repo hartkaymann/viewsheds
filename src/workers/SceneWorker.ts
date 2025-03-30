@@ -340,9 +340,10 @@ function performTriangulation(
     treeData: ArrayBuffer,
     treeDepth: number
 ): {
-    indices: Uint32Array;
-    triangleCount: number;
-    nodeToTriangles: Uint32Array;
+    indices: Uint32Array,
+    triangleCount: number,
+    tree: ArrayBuffer,
+    nodeToTriangles: Uint32Array
 } {
     const coords = new Float64Array(points.length / 2);
     for (let i = 0; i < points.length / 4; i++) {
@@ -362,6 +363,7 @@ function performTriangulation(
     return {
         indices,
         triangleCount,
+        tree: tree.flatten(),
         nodeToTriangles,
     };
 }

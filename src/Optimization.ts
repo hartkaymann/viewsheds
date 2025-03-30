@@ -159,38 +159,48 @@ class QuadTreeNode {
             for (let i = 0; i < trianglesToProcess.length; i += 3) {
                 let v0 = trianglesToProcess[i], v1 = trianglesToProcess[i + 1], v2 = trianglesToProcess[i + 2];
 
-                let base0 = v0 * 4, base1 = v1 * 4, base2 = v2 * 4;
-                let p0x = points[base0], p0z = points[base0 + 2];
-                let p1x = points[base1], p1z = points[base1 + 2];
-                let p2x = points[base2], p2z = points[base2 + 2];
+                const base0 = v0 * 4, base1 = v1 * 4, base2 = v2 * 4;
+                const p0x = points[base0], p0z = points[base0 + 2];
+                const p1x = points[base1], p1z = points[base1 + 2];
+                const p2x = points[base2], p2z = points[base2 + 2];
 
                 if (this.containsPoint(p0x, p0z) || this.containsPoint(p1x, p1z) || this.containsPoint(p2x, p2z)) {
                     globalTriangleIndexBuffer.push(i / 3);
                     this.triangleCount++;
                 }
             }
-            return globalTriangleIndexBuffer;
+            return;
         }
+
+        this.startTriangleIndex = globalTriangleIndexBuffer.length;
+        this.triangleCount = 0;
 
         let filteredTriangles: number[] = [];
         for (let i = 0; i < trianglesToProcess.length; i += 3) {
-            let v0 = trianglesToProcess[i], v1 = trianglesToProcess[i + 1], v2 = trianglesToProcess[i + 2];
+            const v0 = trianglesToProcess[i];
+            const v1 = trianglesToProcess[i + 1];
+            const v2 = trianglesToProcess[i + 2];
 
-            let base0 = v0 * 4, base1 = v1 * 4, base2 = v2 * 4;
-            let p0x = points[base0], p0z = points[base0 + 2];
-            let p1x = points[base1], p1z = points[base1 + 2];
-            let p2x = points[base2], p2z = points[base2 + 2];
+            const base0 = v0 * 4, base1 = v1 * 4, base2 = v2 * 4;
+            const p0x = points[base0], p0z = points[base0 + 2];
+            const p1x = points[base1], p1z = points[base1 + 2];
+            const p2x = points[base2], p2z = points[base2 + 2];
 
-            if (this.containsPoint(p0x, p0z) || this.containsPoint(p1x, p1z) || this.containsPoint(p2x, p2z)) {
+            if (
+                this.containsPoint(p0x, p0z) || 
+                this.containsPoint(p1x, p1z) || 
+                this.containsPoint(p2x, p2z)
+            ) {
                 filteredTriangles.push(v0, v1, v2);
             }
         }
 
-        let filteredTriangleArray = filteredTriangles.length > 0 ? new Uint32Array(filteredTriangles) : null;
-        if (filteredTriangleArray === null) return;
+        if (filteredTriangles.length === 0) return;
 
+        const filteredTriangleArray = new Uint32Array(filteredTriangles);
         for (const child of this.children) {
             child.assignTriangles(filteredTriangleArray, points, globalTriangleIndexBuffer, filteredTriangleArray);
+            this.triangleCount += child.triangleCount;
         }
     }
 }
@@ -274,7 +284,6 @@ export class QuadTree {
         const intView = new Uint32Array(buffer);
 
         // Extract bounds from node 0
-
         const offset = 0;
         const pos = vec3.fromValues(
             floatView[offset],
@@ -289,6 +298,7 @@ export class QuadTree {
 
         const bounds = { pos, size };
         const tree = new QuadTree(bounds, depth);
+        tree.flat = buffer;
         tree.assignIndices();
 
         tree.root.traverse(node => {
@@ -315,7 +325,6 @@ export class QuadTree {
         });
 
         return tree;
-
     }
 
     static noMaxNodesHit(depth: number): number {

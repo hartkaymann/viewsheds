@@ -55,44 +55,6 @@ fn rayAABBIntersection(origin: vec3f, dir: vec3f, pos: vec3f, size: vec3f) -> bo
     return !(tMax < max(0.0, tMin));
 }
 
-fn rayIntersectsTriangle(rayPos: vec3f, rayDir: vec3f, v0: vec3f, v1: vec3f, v2: vec3f) -> f32 {
-    let epsilon = 0.000001;
-
-    let edge1 = v1 - v0;
-    let edge2 = v2 - v0;
-    let h = cross(rayDir, edge2);
-    let a = dot(edge1, h);
-
-    // Check ray parallel to triangle
-    if (abs(a) < epsilon) {
-        return -1.0;
-    }
-
-    let f = 1.0 / a;
-    let s = rayPos - v0;
-    let u = f * dot(s, h);
-
-    // Check intersection outside triangle
-    if (u < 0.0 || u > 1.0) {
-        return -1.0;
-    }
-
-    let q = cross(s, edge1);
-    let v = f * dot(rayDir, q);
-
-    if (v < 0.0 || (u + v) > 1.0) {
-        return -1.0;
-    }
-
-    let t = f * dot(edge2, q);
-
-    if (t > epsilon) {
-        return t;
-    }
-
-    return -1.0;
-}
-
 fn markNodeHit(index: u32) {
     let wordIndex = index / 32;
     let bitIndex = index % 32;
@@ -143,61 +105,4 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
         }
     }
     rayNodeCounts[rayIndex] = leafCount;
-    // let threadIndex = id.z;
-
-    // var hit = false;
-    // var closestDistance = 99999.0;
-    // var closestTriangle: vec3<u32> = vec3<u32>(0u, 0u, 0u); // Store indices of closest triangle
-
-    // for (var i = 0u; i < leafCount; i++) {
-    //     let nodeIndex = leafNodes[i];
-    //     let node = nodeBuffer[nodeIndex];
-        
-    //     for (var j = threadIndex; j < node.triangleCount; j += 4u) {
-    //         let triIndex = triangleMapping[node.startTriangleIndex + j];
-
-    //         let i0 = indexBuffer[triIndex * 3 + 0];
-    //         let i1 = indexBuffer[triIndex * 3 + 1];
-    //         let i2 = indexBuffer[triIndex * 3 + 2];
-            
-    //         let v0 = positionsBuffer[i0].xyz;
-    //         let v1 = positionsBuffer[i1].xyz;
-    //         let v2 = positionsBuffer[i2].xyz;
-
-    //         let t = rayIntersectsTriangle(rayPos, rayDir, v0, v1, v2);
-
-    //         if (t > 0.0) {
-    //             let prevDist = bitcast<f32>(atomicLoad(&closestHitBuffer[0]));
-
-    //             if (t < prevDist) {
-    //                 atomicMin(&closestHitBuffer[0], bitcast<u32>(t));
-    //     	        atomicStore(&closestHitBuffer[1], i0);
-    //     	        atomicStore(&closestHitBuffer[2], i1);
-    //     	        atomicStore(&closestHitBuffer[3], i2);
-    //                 closestDistance = t;
-    //             }
-
-    //             hit = true;
-    //         }
-    //     }
-
-    //     if (hit) {
-    //         break;
-    //     }
-    // }
-
-    // workgroupBarrier(); 
-    // if (bitcast<f32>(atomicLoad(&closestHitBuffer[0])) == closestDistance) {
-    //     let tri0 = atomicLoad(&closestHitBuffer[1]);
-    //     let tri1 = atomicLoad(&closestHitBuffer[2]);
-    //     let tri2 = atomicLoad(&closestHitBuffer[3]);
-
-    //     if(closestDistance < 99999.0) {
-
-    //         markPointHit(tri0);
-    //         markPointHit(tri1);
-    //         markPointHit(tri2);
-    //     }
-
-
 }

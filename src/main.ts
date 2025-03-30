@@ -84,11 +84,13 @@ async function main() {
                 newLoader.startTriangulation(scene.points, treeData, treeDepth);
             },
 
-            onTriangulationDone: ({ indices, triangleCount, nodeToTriangles }) => {
+            onTriangulationDone: ({ indices, triangleCount, treeData, nodeToTriangles }) => {
                 scene.indices = indices;
                 scene.triangleCount = triangleCount;
+                scene.tree = QuadTree.reconstruct(treeData, treeDepth);
                 scene.nodeToTriangles = nodeToTriangles;
 
+                renderer.setNodeData(false);
                 renderer.setMeshData();
                 console.log("Triangulation complete");
             }
