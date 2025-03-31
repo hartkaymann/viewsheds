@@ -32,12 +32,13 @@ export class RayDataTable {
         this.container.innerHTML = "";
         this.container.className = "debug-table-container";
 
-        const headerContainer = document.createElement("div");
-        headerContainer.className = "debug-table-header-container";
+        const scrollWrapper = document.createElement("div");
+        scrollWrapper.className = "debug-table-scroll-wrapper";
 
-        const table = document.createElement("table");
-        table.className = "debug-table";
+        const contentTable = document.createElement("table");
+        contentTable.className = "debug-table";
 
+        // Create header row directly in the main table
         const header = document.createElement("tr");
         ["Ray", "Node Index", "Distance"].forEach(text => {
             const th = document.createElement("th");
@@ -45,14 +46,7 @@ export class RayDataTable {
             th.className = "debug-table-header";
             header.appendChild(th);
         });
-        table.appendChild(header);
-        headerContainer.appendChild(table);
-
-        const contentContainer = document.createElement("div");
-        contentContainer.className = "debug-table-content";
-
-        const contentTable = document.createElement("table");
-        contentTable.className = "debug-table";
+        contentTable.appendChild(header);
 
         const startRay = (this.currentPage - 1) * this.raysPerPage;
         const endRay = Math.min(startRay + this.raysPerPage, this.rayCount);
@@ -99,9 +93,8 @@ export class RayDataTable {
             });
         }
 
-        contentContainer.appendChild(contentTable);
-        this.container.appendChild(headerContainer);
-        this.container.appendChild(contentContainer);
+        scrollWrapper.appendChild(contentTable);
+        this.container.appendChild(scrollWrapper);
 
         this.createPaginationControls();
     }

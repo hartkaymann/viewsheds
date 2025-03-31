@@ -55,13 +55,11 @@ self.onmessage = async (e) => {
             case "build-tree": {
                 const { points, bounds, depth } = msg;
                 const tree = await createQuadtree(points, bounds, depth);
-                postMessage({ type: "tree-built", tree });
-                return;
-            }
 
-            case "triangulate": {
-                const { points, tree, depth } = msg;
-                const result = performTriangulation(points, tree, depth);
+                postMessage({ type: "tree-built", tree: tree.flatten() });
+
+                const result = performTriangulation(points, tree);
+
                 postMessage({ type: "triangulated", ...result });
                 return;
             }
@@ -320,7 +318,7 @@ function reorderFromSortedIndices<T extends Float32Array | Uint32Array>(
     return sorted;
 }
 
-function createQuadtree(points: Float32Array, bounds: Bounds, depth: number): ArrayBuffer {
+function createQuadtree(points: Float32Array, bounds: Bounds, depth: number): QuadTree {
     const tree = new QuadTree({
         pos: vec3.fromValues(bounds.min.x, bounds.min.y, bounds.min.z),
         size: vec3.fromValues(
@@ -332,17 +330,16 @@ function createQuadtree(points: Float32Array, bounds: Bounds, depth: number): Ar
 
     tree.assignPoints(points);
 
-    return tree.flatten();
+    return tree;
 }
 
 function performTriangulation(
     points: Float32Array,
-    treeData: ArrayBuffer,
-    treeDepth: number
+    tree: QuadTree
 ): {
     indices: Uint32Array,
     triangleCount: number,
-    tree: ArrayBuffer,
+    treeData: ArrayBuffer,
     nodeToTriangles: Uint32Array
 } {
     const coords = new Float64Array(points.length / 2);
@@ -356,14 +353,13 @@ function performTriangulation(
     const triangleCount = indices.length / 3;
 
     const globalTriangleIndexBuffer: number[] = [];
-    const tree = QuadTree.reconstruct(treeData, treeDepth);
     tree.assignTriangles(indices, points, globalTriangleIndexBuffer);
     const nodeToTriangles = new Uint32Array(globalTriangleIndexBuffer);
 
     return {
         indices,
         triangleCount,
-        tree: tree.flatten(),
+        treeData: tree.flatten(),
         nodeToTriangles,
     };
 }

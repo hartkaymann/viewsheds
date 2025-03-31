@@ -42,7 +42,7 @@ struct QuadTreeNode {
 
 
 fn rayIntersectsTriangle(rayPos: vec3f, rayDir: vec3f, v0: vec3f, v1: vec3f, v2: vec3f) -> f32 {
-    let epsilon = 0.000001;
+    let epsilon = 1e-4;
 
     let edge1 = v1 - v0;
     let edge2 = v2 - v0;
@@ -82,37 +82,33 @@ fn rayIntersectsTriangle(rayPos: vec3f, rayDir: vec3f, v0: vec3f, v1: vec3f, v2:
 fn markPointHit(index: u32) {
     let wordIndex = index / 32;
     let bitIndex = index % 32;
-    atomicOr(&pointVisibilityBuffer[wordIndex], (1u << bitIndex));
+    if (wordIndex < arrayLength(&pointVisibilityBuffer)) {
+        atomicOr(&pointVisibilityBuffer[wordIndex], (1u << bitIndex));
+    }
 }
 
 @compute @workgroup_size(__WORKGROUP_SIZE_X__, __WORKGROUP_SIZE_Y__, __WORKGROUP_SIZE_Z__)
 fn main(@builtin(global_invocation_id) id: vec3<u32>) {
     let rayIndex = id.x + (id.y * uniforms.raySamples.x);
     let baseOffset = rayIndex * BLOCK_SIZE;
+    let leavesOffset = (1u << (2u * 8u)) / 3u; // 8 is depth of the tree
 
     let ray = rayBuffer[rayIndex];
 
     var hit = false;
     var closestDistance = 99999.0;
-    var closestTriangle: vec3<u32> = vec3<u32>(0u, 0u, 0u);
+    var closestTriangle: vec3<u32> = vec3<u32>(0u, 1u, 2u);
 
     for (var i = 0u; i < rayNodeCounts[rayIndex]; i++) {
-        let node = nodeBuffer[rayNodeBuffer[rayIndex]];
-
-      
+        let node = nodeBuffer[rayNodeBuffer[baseOffset + i]];
+        
         for(var j = 0u; j < node.triangleCount; j++) {
-
             let triIndex = triangleMapping[node.startTriangleIndex + j];
 
             let i0 = indexBuffer[triIndex * 3 + 0];
             let i1 = indexBuffer[triIndex * 3 + 1];
             let i2 = indexBuffer[triIndex * 3 + 2];
             
-            // Debug, mark all of the points in the node
-            markPointHit(i0);
-            markPointHit(i1);
-            markPointHit(i2);
-
             let v0 = positionsBuffer[i0].xyz;
             let v1 = positionsBuffer[i1].xyz;
             let v2 = positionsBuffer[i2].xyz;

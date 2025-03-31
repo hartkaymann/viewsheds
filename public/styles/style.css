@@ -107,3 +107,8 @@ canvas#gfx-main {
   align-items: center;
   gap: 0.5em;
 }
+
+button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}

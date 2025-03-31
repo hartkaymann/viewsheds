@@ -148,58 +148,74 @@ class QuadTreeNode {
         triangles: Uint32Array,
         points: Float32Array,
         globalTriangleIndexBuffer: number[],
-        relevantTriangles: Uint32Array | null = null
+        relevantTriangles: Uint32Array | null = null,
+        triangleIndices: Uint32Array | null = null
     ) {
-        let trianglesToProcess = relevantTriangles ?? triangles;
+        const trianglesToProcess = relevantTriangles ?? triangles;
 
-        if (this.children === null) { // Leaf node
+        const indexMapping = triangleIndices ?? (() => {
+            const count = triangles.length / 3;
+            const indices = new Uint32Array(count);
+            for (let i = 0; i < count; i++) indices[i] = i;
+            return indices;
+        })();
+    
+        if (this.children === null) {
             this.startTriangleIndex = globalTriangleIndexBuffer.length;
             this.triangleCount = 0;
-
+    
             for (let i = 0; i < trianglesToProcess.length; i += 3) {
-                let v0 = trianglesToProcess[i], v1 = trianglesToProcess[i + 1], v2 = trianglesToProcess[i + 2];
-
+                const v0 = trianglesToProcess[i], v1 = trianglesToProcess[i + 1], v2 = trianglesToProcess[i + 2];
+    
                 const base0 = v0 * 4, base1 = v1 * 4, base2 = v2 * 4;
                 const p0x = points[base0], p0z = points[base0 + 2];
                 const p1x = points[base1], p1z = points[base1 + 2];
                 const p2x = points[base2], p2z = points[base2 + 2];
-
+    
                 if (this.containsPoint(p0x, p0z) || this.containsPoint(p1x, p1z) || this.containsPoint(p2x, p2z)) {
-                    globalTriangleIndexBuffer.push(i / 3);
+                    const triangleIndex = indexMapping[i / 3];
+                    globalTriangleIndexBuffer.push(triangleIndex);
                     this.triangleCount++;
                 }
             }
+    
             return;
         }
-
+    
         this.startTriangleIndex = globalTriangleIndexBuffer.length;
         this.triangleCount = 0;
-
-        let filteredTriangles: number[] = [];
+    
+        const filteredTriangleIndices: number[] = [];
+        const filteredTriangleIndexMap: number[] = [];
+        
         for (let i = 0; i < trianglesToProcess.length; i += 3) {
             const v0 = trianglesToProcess[i];
             const v1 = trianglesToProcess[i + 1];
             const v2 = trianglesToProcess[i + 2];
-
+    
             const base0 = v0 * 4, base1 = v1 * 4, base2 = v2 * 4;
             const p0x = points[base0], p0z = points[base0 + 2];
             const p1x = points[base1], p1z = points[base1 + 2];
             const p2x = points[base2], p2z = points[base2 + 2];
-
+    
             if (
-                this.containsPoint(p0x, p0z) || 
-                this.containsPoint(p1x, p1z) || 
+                this.containsPoint(p0x, p0z) ||
+                this.containsPoint(p1x, p1z) ||
                 this.containsPoint(p2x, p2z)
             ) {
-                filteredTriangles.push(v0, v1, v2);
+                const triIndex = indexMapping[i / 3];
+                filteredTriangleIndices.push(v0, v1, v2); // triangle data
+                filteredTriangleIndexMap.push(triIndex);  // global index mapping
             }
         }
-
-        if (filteredTriangles.length === 0) return;
-
-        const filteredTriangleArray = new Uint32Array(filteredTriangles);
+    
+        if (filteredTriangleIndices.length === 0) return;
+    
+        const filteredTriangleArray = new Uint32Array(filteredTriangleIndices);
+        const filteredTriangleMapArray = new Uint32Array(filteredTriangleIndexMap);
+    
         for (const child of this.children) {
-            child.assignTriangles(filteredTriangleArray, points, globalTriangleIndexBuffer, filteredTriangleArray);
+            child.assignTriangles(filteredTriangleArray, points, globalTriangleIndexBuffer, filteredTriangleArray, filteredTriangleMapArray);
             this.triangleCount += child.triangleCount;
         }
     }
@@ -209,6 +225,7 @@ export class QuadTree {
     depth: number;
     root: QuadTreeNode;
     flat: ArrayBuffer | null = null;
+    dirty: boolean = true;
 
     static readonly BYTES_PER_NODE = 48; // 12 floats
 
@@ -220,18 +237,21 @@ export class QuadTree {
     assignPoints(sortedPoints: Float32Array): void {
         const pointSize = 4; // (x, y, z, w)
         this.root.assignPoints(sortedPoints, 0, sortedPoints.length / pointSize);
+        this.dirty = true;
     }
 
     assignIndices() {
         this.root.assignIndicesBreadthFirst();
+        this.dirty = true;
     }
 
     assignTriangles(triangles: Uint32Array, points: Float32Array, globalTriangleIndexBuffer: number[]): void {
         this.root.assignTriangles(triangles, points, globalTriangleIndexBuffer);
+        this.dirty = true;
     }
 
     flatten(): ArrayBuffer {
-        if (this.flat)
+        if (this.flat && !this.dirty)
             return this.flat;
 
         const nodeList: QuadTreeNode[] = [];
@@ -262,6 +282,7 @@ export class QuadTree {
         });
 
         this.flat = buffer;
+        this.dirty = false;
         return buffer;
     }
 

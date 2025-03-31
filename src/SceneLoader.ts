@@ -40,7 +40,7 @@ export class SceneLoader {
                     this.callbacks.onTriangulationDone?.({
                         indices: msg.indices,
                         triangleCount: msg.triangleCount,
-                        treeData: msg.tree,
+                        treeData: msg.treeData,
                         nodeToTriangles: msg.nodeToTriangles,
                     });
                     break;
@@ -59,10 +59,6 @@ export class SceneLoader {
 
     startTreeBuild(points, bounds, depth) {
         this.worker.postMessage({ type: "build-tree", points, bounds, depth });
-    }
-
-    startTriangulation(points, tree, depth) {
-        this.worker.postMessage({ type: "triangulate", points, tree, depth });
     }
 
     terminate() {

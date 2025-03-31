@@ -103,7 +103,7 @@ export class Renderer {
             {
                 name: "point_visibility",
                 size: Math.ceil(this.scene.points.length / 3 / 32) * Uint32Array.BYTES_PER_ELEMENT,
-                usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+                usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC,
             },
             {
                 name: "node_visibility",
@@ -623,7 +623,7 @@ export class Renderer {
         this.renderPassDescriptor.depthStencilAttachment.view = this.depthView;
     }
 
-    setPointData() {
+    async setPointData() {
         this.bufferManager.resize("points", this.scene.points.byteLength);
         this.bufferManager.write("points", this.scene.points);
 
@@ -648,13 +648,18 @@ export class Renderer {
         this.canRender.points = true;
     }
 
-    setNodeData(resize: boolean = true) {
+    async setNodeData(resize: boolean = true) {
         if (resize) {
+            const rayCount = this.raySamples[0] * this.raySamples[1];
+            const maxNodesHit = QuadTree.noMaxNodesHit(this.scene.tree.depth);
+
             this.bufferManager.resize("nodes", QuadTree.totalNodes(this.scene.tree.depth) * QuadTree.BYTES_PER_NODE * 4);
             this.bufferManager.resize("point_to_node", this.scene.tree.root.pointCount * 4);
             this.bufferManager.resize("node_visibility", QuadTree.leafNodes(this.scene.tree.depth) / 32 * Uint32Array.BYTES_PER_ELEMENT);
-            this.bufferManager.resize("ray_nodes", this.raySamples[0] * this.raySamples[1] * QuadTree.noMaxNodesHit(this.scene.tree.depth) * 4);
-            this.bufferManager.resize("debug_distance", this.raySamples[0] * this.raySamples[1] * QuadTree.noMaxNodesHit(this.scene.tree.depth) * 4);
+            this.bufferManager.resize("ray_nodes", rayCount * maxNodesHit * 4);
+            this.bufferManager.resize("debug_distance", rayCount * maxNodesHit * 4);
+            this.bufferManager.resize("copy_distances_buffer", rayCount * maxNodesHit * 4);
+            this.bufferManager.resize("copy_indices_buffer", rayCount * maxNodesHit * 4);
         }
 
         this.bufferManager.write("nodes", this.scene.tree.flatten());
@@ -700,6 +705,12 @@ export class Renderer {
             }
         });
 
+        this.pipelineManager.update("collision", {
+            constants: {
+                BLOCK_SIZE: QuadTree.noMaxNodesHit(this.scene.tree.depth)
+            }
+        });
+
         this.workgroups.update("workgroup-per-ray", {
             strategyArgs: [QuadTree.noMaxNodesHit(this.scene.tree.depth)],
         });
@@ -717,7 +728,7 @@ export class Renderer {
         this.canRender.nodes = true;
     }
 
-    setMeshData() {
+    async setMeshData() {
         this.bufferManager.resize("indices", this.scene.indices.byteLength);
         this.bufferManager.write("indices", this.scene.indices);
 
@@ -819,7 +830,7 @@ export class Renderer {
             }
         });
 
-        
+
         this.pipelineManager.create({
             name: "collision",
             type: "compute",
@@ -956,15 +967,17 @@ export class Renderer {
         const rayCount = this.raySamples[0] * this.raySamples[1];
         const bufferSize = rayCount * QuadTree.noMaxNodesHit(this.scene.tree.depth) * 4;
 
-        distancesBuffer = this.device.createBuffer({
-            size: bufferSize,
-            usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
-        });
+        distancesBuffer = this.bufferManager.get("copy_distances_buffer") ?? this.bufferManager.createBuffer(
+            "copy_distances_buffer",
+            bufferSize,
+            GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ
+        );
 
-        indicesBuffer = this.device.createBuffer({
-            size: bufferSize,
-            usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
-        });
+        indicesBuffer = this.bufferManager.get("copy_indices_buffer") ?? this.bufferManager.createBuffer(
+            "copy_indices_buffer",
+            bufferSize,
+            GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ
+        );
 
         computeEncoder.copyBufferToBuffer(
             this.bufferManager.get("debug_distance"), 0,
@@ -987,13 +1000,16 @@ export class Renderer {
                 indicesBuffer.mapAsync(GPUMapMode.READ),
             ]);
 
-            const distanceArray = new Float32Array(distancesBuffer.getMappedRange());
-            const indexArray = new Uint32Array(indicesBuffer.getMappedRange());
+            const distanceArray = new Float32Array(distancesBuffer.getMappedRange().slice(0));
+            const indexArray = new Uint32Array(indicesBuffer.getMappedRange().slice(0));
 
             const rayCount = this.raySamples[0] * this.raySamples[1];
             const blockSize = QuadTree.noMaxNodesHit(this.scene.tree.depth);
             Utils.displayRayData(indexArray, distanceArray, rayCount, blockSize);
         }
+
+        distancesBuffer.unmap();
+        indicesBuffer.unmap();
     }
 
     runGenerateRays() {
@@ -1016,7 +1032,7 @@ export class Renderer {
         this.device.queue.submit([computeEncoder.finish()]);
     }
 
-    runCollision() {
+    async runCollision() {
         this.bufferManager.clear("point_visibility");
 
         const computeEncoder: GPUCommandEncoder = this.device.createCommandEncoder();
@@ -1035,7 +1051,43 @@ export class Renderer {
         computePass.dispatchWorkgroups(dispatchX, dispatchY, dispatchZ);
 
         computePass.end();
+
+        const pointVisibilityBuffer = this.bufferManager.get("point_visibility");
+        const visibilityByteLength = pointVisibilityBuffer.size;
+        const readBuffer = this.device.createBuffer({
+            size: visibilityByteLength,
+            usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
+        });
+
+        computeEncoder.copyBufferToBuffer(
+            pointVisibilityBuffer, 0,
+            readBuffer, 0,
+            visibilityByteLength
+        );
+
         this.device.queue.submit([computeEncoder.finish()]);
+
+        await this.device.queue.onSubmittedWorkDone();
+        await readBuffer.mapAsync(GPUMapMode.READ);
+        const arrayBuffer = readBuffer.getMappedRange();
+        const visibilityData = new Uint32Array(arrayBuffer.slice(0));
+
+        const visiblePoints: number[] = [];
+
+        for (let wordIndex = 0; wordIndex < visibilityData.length; wordIndex++) {
+            const word = visibilityData[wordIndex];
+            if (word === 0) continue; // skip empty words
+
+            for (let bit = 0; bit < 32; bit++) {
+                if ((word & (1 << bit)) !== 0) {
+                    visiblePoints.push(wordIndex * 32 + bit);
+                }
+            }
+        }
+
+        readBuffer.unmap();
+
+        console.log(`Visible point indices (${visiblePoints.length}):`, visiblePoints);
     }
 
     computeFindLeaves(pass: GPUComputePassEncoder) {
@@ -1181,10 +1233,16 @@ export class Renderer {
     }
 
     resizeRayRelatedBuffers() {
-        this.bufferManager.resize("rays", this.raySamples[0] * this.raySamples[1] * 2 * 4 * 4);
-        this.bufferManager.resize("ray_nodes", this.raySamples[0] * this.raySamples[1] * QuadTree.noMaxNodesHit(this.scene.tree.depth) * 4);
-        this.bufferManager.resize("debug_distance", this.raySamples[0] * this.raySamples[1] * QuadTree.noMaxNodesHit(this.scene.tree.depth) * 4);
-        this.bufferManager.resize("ray_node_counts", this.raySamples[0] * this.raySamples[1] * 4);
+        const rayCount = this.raySamples[0] * this.raySamples[1];
+        const maxNodesHit = QuadTree.noMaxNodesHit(this.scene.tree.depth);
+
+        this.bufferManager.resize("rays", rayCount * 2 * 4 * 4);
+        this.bufferManager.resize("ray_nodes", rayCount * maxNodesHit * 4);
+        this.bufferManager.resize("debug_distance", rayCount * maxNodesHit * 4);
+        this.bufferManager.resize("ray_node_counts", rayCount * 4);
+        this.bufferManager.resize("ray_node_counts", rayCount * 4);
+        this.bufferManager.resize("copy_distances_buffer", rayCount * maxNodesHit * 4);
+        this.bufferManager.resize("copy_indices_buffer", rayCount * maxNodesHit * 4);
     }
 
     updateRayRelatedBindGroups() {
@@ -1231,6 +1289,14 @@ export class Renderer {
         });
 
         this.pipelineManager.update("find-leaves", {
+            codeConstants: {
+                WORKGROUP_SIZE_X: gridLayout.workgroupSize[0],
+                WORKGROUP_SIZE_Y: gridLayout.workgroupSize[1],
+                WORKGROUP_SIZE_Z: gridLayout.workgroupSize[2],
+            }
+        });
+
+        this.pipelineManager.update("collision", {
             codeConstants: {
                 WORKGROUP_SIZE_X: gridLayout.workgroupSize[0],
                 WORKGROUP_SIZE_Y: gridLayout.workgroupSize[1],

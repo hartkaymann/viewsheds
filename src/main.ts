@@ -60,7 +60,7 @@ async function main() {
 
     let sceneLoader = setupSceneLoader();
 
-    const treeDepth = 6; // Don't set above 8! 
+    const treeDepth = 8; // Don't set above 8! 
 
     function setupSceneLoader(): SceneLoader {
         const newLoader = new SceneLoader(SceneWorker);
@@ -79,9 +79,12 @@ async function main() {
 
             onTreeBuilt: (treeData) => {
                 scene.tree = QuadTree.reconstruct(treeData, treeDepth);
-                renderer.setNodeData();
-
-                newLoader.startTriangulation(scene.points, treeData, treeDepth);
+                renderer.setNodeData().then(() => {
+                    const runNodesButton = document.getElementById("runNodes") as HTMLButtonElement;
+                    if (runNodesButton) {
+                        runNodesButton.disabled = false;
+                    };
+                });;
             },
 
             onTriangulationDone: ({ indices, triangleCount, treeData, nodeToTriangles }) => {
@@ -91,7 +94,13 @@ async function main() {
                 scene.nodeToTriangles = nodeToTriangles;
 
                 renderer.setNodeData(false);
-                renderer.setMeshData();
+                renderer.setMeshData().then(() => {
+                    const runPointsButton = document.getElementById("runPoints") as HTMLButtonElement;
+                    if (runPointsButton) {
+                        runPointsButton.disabled = false;
+                    };
+                });
+
                 console.log("Triangulation complete");
             }
         });

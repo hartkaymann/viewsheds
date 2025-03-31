@@ -10,14 +10,10 @@
     background-color: #2e2e2e;
     color: #eeeeee;
     font-family: monospace;
+    overflow: hidden;
 }
 
-.debug-table-header-container {
-    flex-shrink: 0;
-    background: #3a3a3a;
-}
-
-.debug-table-content {
+.debug-table-scroll-wrapper {
     flex: 1 1 auto;
     overflow-y: auto;
 }
@@ -25,6 +21,12 @@
 .debug-table {
     border-collapse: collapse;
     width: 100%;
+}
+
+.debug-table th {
+    position: sticky;
+    top: 0;
+    z-index: 1;
 }
 
 .debug-table-header {

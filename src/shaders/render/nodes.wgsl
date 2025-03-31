@@ -64,6 +64,7 @@ fn main(
 
     let baseOffset = (1u << (2u * TREE_DEPTH)) / 3u; // bit-shift instead of pow
     let nodeIndex = baseOffset + instance_index;
+    // let nodeIndex = 21846u;
     let node = nodeBuffer[nodeIndex];
 
     let localPosition = cubeEdges[vertex_index];
