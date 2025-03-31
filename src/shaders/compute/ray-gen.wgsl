@@ -11,6 +11,7 @@ struct Ray {
     origin: vec3f,
     length: f32,
     direction: vec3f,
+    hit: u32,
 };
 
 @group(0) @binding(0) var<uniform> uniforms: compUniforms;
@@ -37,5 +38,5 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
         sin(theta) * sin(phi)
     ));
 
-    rayBuffer[index] = Ray(uniforms.rayOrigin, 100.0, dir);
+    rayBuffer[index] = Ray(uniforms.rayOrigin, 100.0, dir, 0u);
 }

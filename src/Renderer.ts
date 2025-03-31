@@ -207,7 +207,7 @@ export class Renderer {
         this.bindGroupsManager.createLayout({
             name: "sort",
             entries: [
-                { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
+                { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
                 { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
                 { binding: 2, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
                 { binding: 3, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
@@ -522,8 +522,6 @@ export class Renderer {
             code: nodes_src,
             constants: {
                 TREE_DEPTH: this.scene.tree.depth,
-                BLOCK_SIZE: QuadTree.noMaxNodesHit(this.scene.tree.depth),
-                RAY_COUNT: this.raySamples[0] * this.raySamples[1],
             },
             render: {
                 vertex: {
@@ -691,7 +689,6 @@ export class Renderer {
         this.pipelineManager.update("render-nodes", {
             constants: {
                 TREE_DEPTH: this.scene.tree.depth,
-                BLOCK_SIZE: QuadTree.noMaxNodesHit(this.scene.tree.depth)
             }
         });
 
@@ -1308,12 +1305,6 @@ export class Renderer {
             codeConstants: {
                 WORKGROUP_SIZE: linearLayout.workgroupSize[0],
             },
-        });
-
-        this.pipelineManager.update("render-nodes", {
-            constants: {
-                RAY_COUNT: this.raySamples[0] * this.raySamples[1],
-            }
         });
     }
 

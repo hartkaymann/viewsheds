@@ -14,7 +14,7 @@ struct Ray {
     origin: vec3f,
     length: f32,
     direction: vec3f,
-    // 4 byte padding
+    hit: u32
 };
 
 struct QuadTreeNode {
@@ -25,13 +25,14 @@ struct QuadTreeNode {
     pointCount: u32,
     startTriangleIndex: u32,
     triangleCount: u32,
+    isFirst: u32,
 };
 
 @group(0) @binding(0) var<uniform> uniforms: compUniforms;
 
 @group(1) @binding(0) var<storage, read_write> rayBuffer: array<Ray>;
 
-@group(2) @binding(0) var<storage, read> nodeBuffer: array<QuadTreeNode>;
+@group(2) @binding(0) var<storage, read_write> nodeBuffer: array<QuadTreeNode>;
 @group(2) @binding(1) var<storage, read> rayNodeCounts: array<u32>;
 @group(2) @binding(2) var<storage, read_write> rayNodeBuffer: array<u32>;
 
@@ -131,5 +132,8 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
         markPointHit(closestTriangle.x);
         markPointHit(closestTriangle.y);
         markPointHit(closestTriangle.z);
+        
+        rayBuffer[rayIndex].length = closestDistance;
+        rayBuffer[rayIndex].hit = select(0u, 1u, hit);
     }
 }

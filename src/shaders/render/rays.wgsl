@@ -8,7 +8,7 @@ struct Ray {
     origin: vec3f,
     length: f32,
     direction: vec3f,
-    // 4 byte padding
+    hit: u32
 };
 
 @group(0) @binding(4) var<uniform> uniforms: Uniforms;
@@ -30,7 +30,11 @@ fn main_vs(@builtin(vertex_index) vertexIndex: u32) -> VertexOutput {
         let ray = rayBuffer[rayIndex];
         let rayPos = select(ray.origin, ray.origin + ray.direction * max(1.0, ray.length), isStartPoint);
         output.position = uniforms.projectionMatrix * uniforms.viewMatrix * vec4f(rayPos, 1.0);
-        output.color = vec4f(0.0, 0.78, 0.0, 1.0);
+
+        let green = vec4f(0.0, 0.78, 0.0, 1.0);
+        let red = vec4f(0.63, 0.0, 0.0, 0.5);
+
+        output.color = select(red, green, ray.hit == 1u);
     } else {
         output.position = vec4f(0.0, 0.0, 0.0, 1.0);
         output.color = vec4f(1.0, 0.0, 0.0, 1.0);

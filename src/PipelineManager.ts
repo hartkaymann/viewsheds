@@ -35,7 +35,10 @@ export class PipelineManager {
             ? this.applyShaderConstants(config.code, config.codeConstants)
             : config.code;
 
-        const module = this.device.createShaderModule({ code: processedCode });
+        const module = this.device.createShaderModule({
+            label: `shader-${config.name}`,
+            code: processedCode
+        });
 
         const pipeline = config.type === "compute"
             ? this.device.createComputePipeline({

@@ -1,6 +1,4 @@
 override TREE_DEPTH = 6u;
-override BLOCK_SIZE = 128u;
-override RAY_COUNT = 64u;
 
 struct Uniforms {
     modelMatrix: mat4x4f,
@@ -16,6 +14,7 @@ struct QuadTreeNode {
     pointCount: u32,
     startTriangleIndex: u32,
     triangleCount: u32,
+    isFirst: u32,
 };
 
 const cubeEdges = array<vec3<f32>, 24>(
@@ -42,7 +41,6 @@ const cubeEdges = array<vec3<f32>, 24>(
 @group(0) @binding(1) var<storage, read> nodeBuffer: array<QuadTreeNode>;
 @group(0) @binding(2) var<storage, read> nodeVisibilityBuffer: array<u32>;
 @group(0) @binding(3) var<storage, read> rayNodeBuffer: array<u32>;
-
 
 struct VertexOutput {
   @builtin(position) position: vec4f,
@@ -81,14 +79,10 @@ fn main(
     }
     
     if (getBoolean(instance_index)) {
-        color = vec4f(1.0, 0.5, 0.0, 1.0);
+        let orange = vec4f(1.0, 0.5, 0.0, 1.0);
+        let blue = vec4f(0.0, 0.47, 1.0, 1.0);
 
-        for (var i = 0u; i < RAY_COUNT; i++) {
-            if (rayNodeBuffer[i * BLOCK_SIZE] == nodeIndex) {
-                color = vec4f(0.0, 0.47, 1.0, 1.0);
-                break;
-            }
-        }
+        color = select(orange, blue, node.isFirst == 1u);
     }
     output.color = color;
     return output;

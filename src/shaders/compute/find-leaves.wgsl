@@ -14,7 +14,7 @@ struct Ray {
     origin: vec3f,
     length: f32,
     direction: vec3f,
-    // 4 byte padding
+    hit: u32,
 };
 
 struct QuadTreeNode {
@@ -25,6 +25,7 @@ struct QuadTreeNode {
     pointCount: u32,
     startTriangleIndex: u32,
     triangleCount: u32,
+    isFirst: u32,
 };
 
 //@group(0) @binding(0) var<storage, read> positionsBuffer: array<vec4f>;
@@ -91,6 +92,7 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
             rayNodeBuffer[baseOffset + leafCount] = nodeIndex;
             leafCount += 1;
 
+            rayBuffer[rayIndex].hit = 1u;
             markNodeHit(nodeIndex - leafOffset);
             continue;
         }

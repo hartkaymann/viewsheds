@@ -58,7 +58,19 @@ export class WorkgroupManager {
         problemSize: [number, number, number],
         strategy: WorkgroupStrategy
     ): WorkgroupLayout {
-        const result = strategy({ limits: this.limits, problemSize });
+        let result: ReturnType<WorkgroupStrategy>;
+
+        try {
+            result = strategy({ limits: this.limits, problemSize });
+        } catch (err) {
+            if (err instanceof Error) {
+                console.error("Workgroup strategy error:", err.message);
+                throw new Error(`Invalid workgroup layout: ${err.message}`);
+            } else {
+                throw err;
+            }
+        }
+
         const [x, y, z] = result.workgroupSize;
         const threads = x * y * z;
 
