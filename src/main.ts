@@ -151,7 +151,7 @@ async function main() {
         };
     });
 
-    const response = await fetch('/model/files.json');
+    const response = await fetch('./model/files.json');
     const lazFiles = await response.json();
     if (lazFiles.length === 0) {
         console.warn('No .laz files found.');
