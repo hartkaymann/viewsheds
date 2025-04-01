@@ -22,7 +22,11 @@ export class DeviceManager {
             maxComputeWorkgroupSizeZ: this.adapter.limits.maxComputeWorkgroupSizeZ,
         };
 
-        this.device = await this.adapter.requestDevice({ requiredLimits });
+        const canTimestamp = this.adapter.features.has('timestamp-query');
+        const requiredFeatures: GPUFeatureName[] = [];
+        if (canTimestamp) requiredFeatures.push('timestamp-query');
+
+        this.device = await this.adapter.requestDevice({ requiredLimits, requiredFeatures });
 
         // Handle device loss
         this.device.lost.then((info) => {

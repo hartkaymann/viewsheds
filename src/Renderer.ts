@@ -181,6 +181,16 @@ export class Renderer {
                 name: "debug_distance",
                 size: this.raySamples[0] * this.raySamples[1] * QuadTree.noMaxNodesHit(this.scene.tree.depth) * 4,
                 usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC,
+            },
+            {
+                name: "timestamp_resolve",
+                size: 2 * 8,
+                usage: GPUBufferUsage.QUERY_RESOLVE | GPUBufferUsage.COPY_SRC,
+            },
+            {
+                name: "timestamp_result",
+                size: 2 * 8,
+                usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
             }
         ]);
 
@@ -573,7 +583,6 @@ export class Renderer {
             usage: GPUTextureUsage.RENDER_ATTACHMENT,
         });
         this.depthView = this.depthTexture.createView();
-
 
         this.renderPassDescriptor = {
             colorAttachments: [
@@ -1014,11 +1023,37 @@ export class Renderer {
         indicesBuffer.unmap();
     }
 
-    runGenerateRays() {
+    async runGenerateRays() {
         this.bufferManager.clear("rays");
 
+        let gpuTime = 0;
+        const resolveBuffer = this.bufferManager.get("timestamp_resolve");
+        const resultBuffer = this.bufferManager.get("timestamp_result");
+
+        const canTimestamp = this.device.features.has('timestamp-query');
+        const { querySet } = (() => {
+            if (!canTimestamp) {
+                return {};
+            }
+
+            const querySet = this.device.createQuerySet({
+                type: 'timestamp',
+                count: 2,
+            });
+            return { querySet };
+        })();
+
+        const descriptor: GPUComputePassDescriptor = {
+            ...(canTimestamp && {
+                timestampWrites: {
+                    querySet,
+                    beginningOfPassWriteIndex: 0,
+                    endOfPassWriteIndex: 1,
+                },
+            }),
+        };
         const computeEncoder: GPUCommandEncoder = this.device.createCommandEncoder();
-        const computePass: GPUComputePassEncoder = computeEncoder.beginComputePass();
+        const computePass: GPUComputePassEncoder = computeEncoder.beginComputePass(descriptor);
 
         const gridLayout = this.workgroups.getLayout("2d-grid-per-ray");
         const dispatchX = gridLayout.dispatchSize[0];
@@ -1029,9 +1064,30 @@ export class Renderer {
         computePass.setBindGroup(0, this.bindGroupsManager.getGroup("compute-uniforms"));
         computePass.setBindGroup(1, this.bindGroupsManager.getGroup("rays"));
         computePass.dispatchWorkgroups(dispatchX, dispatchY, dispatchZ);
-
         computePass.end();
+
+        if (canTimestamp) {
+            computeEncoder.resolveQuerySet(querySet, 0, 2, resolveBuffer, 0);
+            if (resultBuffer.mapState === 'unmapped') {
+                computeEncoder.copyBufferToBuffer(resolveBuffer, 0, resultBuffer, 0, resultBuffer.size);
+            }
+        }
+
         this.device.queue.submit([computeEncoder.finish()]);
+
+        await this.device.queue.onSubmittedWorkDone();
+
+        try {
+            await resultBuffer.mapAsync(GPUMapMode.READ);
+            const range = resultBuffer.getMappedRange();
+            const times = new BigUint64Array(range);
+            const deltaUs = Number(times[1] - times[0]) / 1000;
+            console.log(`${deltaUs.toFixed(2)}µs`);
+            resultBuffer.unmap();
+        } catch (e) {
+            console.error("Failed to map result buffer:", e);
+        }
+
     }
 
     async runCollision() {
