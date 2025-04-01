@@ -4,31 +4,31 @@
 import { Promise } from "bluebird";
 
 const pointFormatReaders = {
-    0: function(dv) {
+    0: function (dv) {
         return {
-            "position": [ dv.getInt32(0, true), dv.getInt32(4, true), dv.getInt32(8, true)],
+            "position": [dv.getInt32(0, true), dv.getInt32(4, true), dv.getInt32(8, true)],
             "intensity": dv.getUint16(12, true),
             "classification": dv.getUint8(15, true)
         };
     },
-    1: function(dv) {
+    1: function (dv) {
         return {
-            "position": [ dv.getInt32(0, true), dv.getInt32(4, true), dv.getInt32(8, true)],
+            "position": [dv.getInt32(0, true), dv.getInt32(4, true), dv.getInt32(8, true)],
             "intensity": dv.getUint16(12, true),
             "classification": dv.getUint8(15, true)
         };
     },
-    2: function(dv) {
+    2: function (dv) {
         return {
-            "position": [ dv.getInt32(0, true), dv.getInt32(4, true), dv.getInt32(8, true)],
+            "position": [dv.getInt32(0, true), dv.getInt32(4, true), dv.getInt32(8, true)],
             "intensity": dv.getUint16(12, true),
             "classification": dv.getUint8(15, true),
             "color": [dv.getUint16(20, true), dv.getUint16(22, true), dv.getUint16(24, true)]
         };
     },
-    3: function(dv) {
+    3: function (dv) {
         return {
-            "position": [ dv.getInt32(0, true), dv.getInt32(4, true), dv.getInt32(8, true)],
+            "position": [dv.getInt32(0, true), dv.getInt32(4, true), dv.getInt32(8, true)],
             "intensity": dv.getUint16(12, true),
             "classification": dv.getUint8(15, true),
             "color": [dv.getUint16(28, true), dv.getUint16(30, true), dv.getUint16(32, true)]
@@ -45,7 +45,7 @@ function readAs(buf, Type, offset, count) {
         return r[0];
 
     const ret = [];
-    for (let i = 0 ; i < count ; i ++) {
+    for (let i = 0; i < count; i++) {
         ret.push(r[i]);
     }
 
@@ -55,12 +55,12 @@ function readAs(buf, Type, offset, count) {
 function parseLASHeader(arraybuffer) {
     const o = {};
 
-    o.pointsOffset = readAs(arraybuffer, Uint32Array, 32*3);
-    o.pointsFormatId = readAs(arraybuffer, Uint8Array, 32*3+8);
-    o.pointsStructSize = readAs(arraybuffer, Uint16Array, 32*3+8+1);
-    o.pointsCount = readAs(arraybuffer, Uint32Array, 32*3 + 11);
+    o.pointsOffset = readAs(arraybuffer, Uint32Array, 32 * 3);
+    o.pointsFormatId = readAs(arraybuffer, Uint8Array, 32 * 3 + 8);
+    o.pointsStructSize = readAs(arraybuffer, Uint16Array, 32 * 3 + 8 + 1);
+    o.pointsCount = readAs(arraybuffer, Uint32Array, 32 * 3 + 11);
 
-    let start = 32*3 + 35;
+    let start = 32 * 3 + 35;
     o.scale = readAs(arraybuffer, Float64Array, start, 3); start += 24; // 8*3
     o.offset = readAs(arraybuffer, Float64Array, start, 3); start += 24;
 
@@ -85,7 +85,7 @@ export function handleMessage(message_event) {
 
     // call the callback in a separate context, make sure we've cleaned our
     // state out before the callback is invoked since it may queue more doExchanges
-    setTimeout(function() {
+    setTimeout(function () {
         if (msg.error)
             return resolver.reject(new Error(msg.message || "Unknown Error"));
 
@@ -93,7 +93,8 @@ export function handleMessage(message_event) {
             return resolver.resolve({
                 buffer: msg.result,
                 count: msg.count,
-                hasMoreData: msg.hasMoreData});
+                hasMoreData: msg.hasMoreData
+            });
         }
 
         resolver.resolve(msg.result);
@@ -102,7 +103,7 @@ export function handleMessage(message_event) {
 
 function doDataExchange(cmd) {
     cmd.id = msgIndex.toString();
-    msgIndex ++;
+    msgIndex++;
 
     const resolver = Promise.defer();
     waitHandlers[cmd.id] = resolver;
@@ -124,7 +125,7 @@ export class LASLoader {
         // nothing needs to be done to open this file
         //
         this.readOffset = 0;
-        return new Promise(function(res, rej) {
+        return new Promise(function (res, rej) {
             setTimeout(res, 0);
         });
     }
@@ -132,8 +133,8 @@ export class LASLoader {
     getHeader() {
         const o = this;
 
-        return new Promise(function(res, rej) {
-            setTimeout(function() {
+        return new Promise(function (res, rej) {
+            setTimeout(function () {
                 o.header = parseLASHeader(o.arraybuffer);
                 res(o.header);
             }, 0);
@@ -143,8 +144,8 @@ export class LASLoader {
     readData(count, offset, skip) {
         const o = this;
 
-        return new Promise(function(res, rej) {
-            setTimeout(function() {
+        return new Promise(function (res, rej) {
+            setTimeout(function () {
                 if (!o.header)
                     return rej(new Error("Cannot start reading data till a header request is issued"));
 
@@ -157,7 +158,8 @@ export class LASLoader {
                     res({
                         buffer: o.arraybuffer.slice(start, end),
                         count: count,
-                        hasMoreData: o.readOffset + count < o.header.pointsCount});
+                        hasMoreData: o.readOffset + count < o.header.pointsCount
+                    });
                     o.readOffset += count;
                 }
                 else {
@@ -167,16 +169,16 @@ export class LASLoader {
 
                     const buf = new Uint8Array(bufferSize * o.header.pointsStructSize);
                     console.log("Destination size:", buf.byteLength);
-                    for (let i = 0 ; i < pointsToRead ; i ++) {
+                    for (let i = 0; i < pointsToRead; i++) {
                         if (i % skip === 0) {
                             start = o.header.pointsOffset + o.readOffset * o.header.pointsStructSize;
                             const src = new Uint8Array(o.arraybuffer, start, o.header.pointsStructSize);
 
                             buf.set(src, pointsRead * o.header.pointsStructSize);
-                            pointsRead ++;
+                            pointsRead++;
                         }
 
-                        o.readOffset ++;
+                        o.readOffset++;
                     }
 
                     res({
@@ -191,7 +193,7 @@ export class LASLoader {
 
     close() {
         const o = this;
-        return new Promise(function(res, rej) {
+        return new Promise(function (res, rej) {
             o.arraybuffer = null;
             setTimeout(res, 0);
         });
@@ -204,12 +206,18 @@ export class LASLoader {
 export class LAZLoader {
     constructor(arraybuffer) {
         this.arraybuffer = arraybuffer;
-        this.ww = new Worker(new URL('./laz-loader-worker.js', import.meta.url));
+        this.ww = new Worker('/viewsheds/workers/laz-loader-worker.js');
+
+
+        this.ww.postMessage({
+            type: 'init',
+            baseUrl: import.meta.env.BASE_URL,
+        });
 
         this.nextCB = null;
         const o = this;
 
-        this.ww.onmessage = function(e) {
+        this.ww.onmessage = function (e) {
             if (o.nextCB !== null) {
                 //console.log('dorr: >>', e.data);
                 o.nextCB(e.data);
@@ -217,8 +225,7 @@ export class LAZLoader {
             }
         };
 
-        this.dorr = function(req, cb) {
-            //console.log('dorr: <<', req);
+        this.dorr = function (req, cb, transfer = []) {
             o.nextCB = cb;
             o.ww.postMessage(req);
         };
@@ -228,21 +235,23 @@ export class LAZLoader {
         // nothing needs to be done to open this file
         //
         const o = this;
-        return new Promise(function(res, rej) {
-            o.dorr({type:"open", arraybuffer: o.arraybuffer}, function(r) {
-                if (r.status !== 1)
-                    return rej(new Error("Failed to open file"));
+        return new Promise(function (res, rej) {
+            o.dorr({ type: "open", arraybuffer: o.arraybuffer },
+                function (r) {
+                    if (r.status !== 1)
+                        return rej(new Error("Failed to open file"));
 
-                res(true);
-            });
+                    res(true);
+                }
+            );
         });
     }
 
     getHeader() {
         const o = this;
 
-        return new Promise(function(res, rej) {
-            o.dorr({type:'header'}, function(r) {
+        return new Promise(function (res, rej) {
+            o.dorr({ type: 'header' }, function (r) {
                 if (r.status !== 1)
                     return rej(new Error("Failed to get header"));
 
@@ -254,8 +263,8 @@ export class LAZLoader {
     readData(count, offset, skip) {
         const o = this;
 
-        return new Promise(function(res, rej) {
-            o.dorr({type:'read', count: count, offset: offset, skip: skip}, function(r) {
+        return new Promise(function (res, rej) {
+            o.dorr({ type: 'read', count: count, offset: offset, skip: skip }, function (r) {
                 if (r.status !== 1)
                     return rej(new Error("Failed to read data"));
                 res({
@@ -270,8 +279,8 @@ export class LAZLoader {
     close() {
         const o = this;
 
-        return new Promise(function(res, rej) {
-            o.dorr({type:'close'}, function(r) {
+        return new Promise(function (res, rej) {
+            o.dorr({ type: 'close' }, function (r) {
                 if (r.status !== 1)
                     return rej(new Error("Failed to close file"));
 
@@ -300,7 +309,7 @@ export class LASFile {
     }
 
     determineFormat() {
-        const formatId = readAs(this.arraybuffer, Uint8Array, 32*3+8);
+        const formatId = readAs(this.arraybuffer, Uint8Array, 32 * 3 + 8);
         const bit_7 = (formatId & 0x80) >> 7;
         const bit_6 = (formatId & 0x40) >> 6;
 

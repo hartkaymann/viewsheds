@@ -1,8 +1,6 @@
 // laz-loader-worker.js
 //
 
-importScripts('/scripts/laz-perf.js');
-
 var instance = null; // laz-perf instance
 
 function readAs(buf, Type, offset, count) {
@@ -14,7 +12,7 @@ function readAs(buf, Type, offset, count) {
 		return r[0];
 
 	var ret = [];
-	for (var i = 0 ; i < count ; i ++) {
+	for (var i = 0; i < count; i++) {
 		ret.push(r[i]);
 	}
 
@@ -24,13 +22,13 @@ function readAs(buf, Type, offset, count) {
 function parseLASHeader(arraybuffer) {
 	var o = {};
 
-	o.pointsOffset = readAs(arraybuffer, Uint32Array, 32*3);
-	o.pointsFormatId = readAs(arraybuffer, Uint8Array, 32*3+8);
-	o.pointsStructSize = readAs(arraybuffer, Uint16Array, 32*3+8+1);
-	o.pointsCount = readAs(arraybuffer, Uint32Array, 32*3 + 11);
+	o.pointsOffset = readAs(arraybuffer, Uint32Array, 32 * 3);
+	o.pointsFormatId = readAs(arraybuffer, Uint8Array, 32 * 3 + 8);
+	o.pointsStructSize = readAs(arraybuffer, Uint16Array, 32 * 3 + 8 + 1);
+	o.pointsCount = readAs(arraybuffer, Uint32Array, 32 * 3 + 11);
 
 
-	var start = 32*3 + 35;
+	var start = 32 * 3 + 35;
 	o.scale = readAs(arraybuffer, Float64Array, start, 3); start += 24; // 8*3
 	o.offset = readAs(arraybuffer, Float64Array, start, 3); start += 24;
 
@@ -42,7 +40,20 @@ function parseLASHeader(arraybuffer) {
 }
 
 function handleEvent(msg) {
-	switch(msg.type) {
+	switch (msg.type) {
+		case "init":
+			const baseUrl = msg.baseUrl ?? '/';
+			const scriptURL = `${baseUrl}workers/laz-perf.js`;
+
+			try {
+				importScripts(scriptURL);
+				lazLoaded = true;
+			} catch (err) {
+				console.error("Failed to import laz-perf.js:", err);
+				postMessage({ type: 'error', message: err.message });
+			}
+			break;
+
 		case "open":
 			try {
 				instance = new Module.LASZip();
@@ -56,9 +67,9 @@ function handleEvent(msg) {
 
 				instance.readOffset = 0;
 
-				postMessage({ type: "open", status: 1});
+				postMessage({ type: "open", status: 1 });
 			}
-			catch(e) {
+			catch (e) {
 				postMessage({ type: "open", status: 0, details: e });
 			}
 			break;
@@ -70,7 +81,7 @@ function handleEvent(msg) {
 			var header = parseLASHeader(instance.arraybuffer);
 			header.pointsFormatId &= 0x3f;
 			instance.header = header;
-			postMessage({type: "header", status: 1, header: header});
+			postMessage({ type: "header", status: 1, header: header });
 			break;
 
 		case "read":
@@ -89,16 +100,16 @@ function handleEvent(msg) {
 
 			var this_buf = new Uint8Array(bufferSize * o.header.pointsStructSize);
 			var buf_read = Module._malloc(o.header.pointsStructSize);
-			for (var i = 0 ; i < pointsToRead ; i ++) {
+			for (var i = 0; i < pointsToRead; i++) {
 				o.getPoint(buf_read);
 
 				if (i % skip === 0) {
 					var a = new Uint8Array(Module.HEAPU8.buffer, buf_read, o.header.pointsStructSize);
 					this_buf.set(a, pointsRead * o.header.pointsStructSize, o.header.pointsStructSize);
-					pointsRead ++;
+					pointsRead++;
 				}
 
-				o.readOffset ++;
+				o.readOffset++;
 			}
 
 			postMessage({
@@ -116,16 +127,16 @@ function handleEvent(msg) {
 				instance.delete();
 				instance = null;
 			}
-			postMessage({ type: "close", status: 1});
+			postMessage({ type: "close", status: 1 });
 			break;
 	}
 }
 
-onmessage = function(event) {
+onmessage = function (event) {
 	try {
 		handleEvent(event.data);
-	} catch(e) {
-		postMessage({type: event.data.type, status: 0, details: e});
+	} catch (e) {
+		postMessage({ type: event.data.type, status: 0, details: e });
 	}
 };
 

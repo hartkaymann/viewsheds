@@ -151,17 +151,15 @@ async function main() {
         };
     });
 
-    const response = await fetch('./model/files.json');
+    const response = await fetch(`${import.meta.env.BASE_URL}model/files.json`);
     const lazFiles = await response.json();
     if (lazFiles.length === 0) {
         console.warn('No .laz files found.');
         return;
     }
-    const url = `/model/${lazFiles[0]}`;
+    const url = new URL(`${import.meta.env.BASE_URL}model/${lazFiles[0]}`, location.origin).toString();;
     console.log('First LAZ file URL:', url);
     sceneLoader.worker.postMessage({ type: "load-url", url });
 }
-
-
 
 main().catch(console.error);
