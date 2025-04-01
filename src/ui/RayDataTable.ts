@@ -30,7 +30,7 @@ export class RayDataTable {
         if (!this.container) return;
 
         this.container.innerHTML = "";
-        this.container.className = "debug-table-container";
+        this.container.className = "panel debug-table-container";
 
         const scrollWrapper = document.createElement("div");
         scrollWrapper.className = "debug-table-scroll-wrapper";

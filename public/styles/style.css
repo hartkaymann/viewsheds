@@ -1,5 +1,6 @@
 /* Disable page scroll */
-html, body {
+html,
+body {
   margin: 0;
   padding: 0;
   height: 100%;
@@ -16,10 +17,11 @@ html, body {
   width: 100vw;
   box-sizing: border-box;
   overflow: hidden;
+  gap: 2px;
+  padding: 2px;
 }
 
 .panel {
-  margin: 1px;
   box-sizing: border-box;
   overflow: auto;
   background-color: #2e2e2e;
@@ -28,10 +30,12 @@ html, body {
 }
 
 #left-panel {
-  flex: 1 1 auto; /* Allow growing */
+  flex: 1 1 auto;
+  /* Allow growing */
   overflow: hidden;
   display: flex;
   flex-direction: column;
+  gap: 2px;
 }
 
 /* Match width of canvas and debug-table */
@@ -42,7 +46,8 @@ canvas#gfx-main {
 }
 
 #canvas-wrapper {
-  flex: 1 1 auto; /* Expand to available space */
+  flex: 1 1 auto;
+  /* Expand to available space */
   display: flex;
   position: relative;
   max-height: 100%;
@@ -50,17 +55,15 @@ canvas#gfx-main {
   flex-direction: column;
 }
 
-
 #fps-counter {
   position: absolute;
   top: 4px;
   left: 4px;
   background: rgba(0, 0, 0, 0.6);
-  color: white;
+  color: #eee;
   font-size: 12px;
   font-family: monospace;
   padding: 2px 4px;
-  border-radius: 3px;
   pointer-events: none;
   z-index: 10;
 }
@@ -74,6 +77,13 @@ canvas#gfx-main {
 
   display: flex;
   flex-direction: column;
+  gap: 2px;
+}
+
+#controls-panel {
+  flex: 1 1 auto;
+  /* Allow growing */
+  overflow: hidden;
 }
 
 .controls-container,
@@ -111,4 +121,35 @@ canvas#gfx-main {
 button:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+#profiler-panel {
+  min-height: 300px;
+  max-height: 300px;
+  overflow: hidden;
+  padding: 1em;
+  color: #eee;
+  font-family: monospace;
+}
+
+
+#buffer-toggle {
+  cursor: pointer;
+  color: #0ff;
+  margin-top: 4px;
+}
+
+#buffer-list {
+  display: none;
+  max-height: 200px;
+  overflow-y: auto;
+  margin-top: 0.5em;
+  padding-right: 0.5em;
+}
+
+.buffer-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 0.2em 0;
+  border-bottom: 1px solid #3a3a3a;
 }

@@ -1,3 +1,4 @@
+import { Profiler } from './Profiler';
 import { RayDataTable } from './ui/RayDataTable';
 
 export class Utils {

@@ -8,11 +8,16 @@ interface BufferInitConfig {
     data?: ArrayBufferView | ArrayBuffer;
 }
 
+export type BufferResizeListener = (name: string, newSize: number) => void;
+
 export class BufferManager {
 
     device: GPUDevice;
     buffers: Map<string, GPUBuffer>;
     readonly limits: BufferLimits;
+
+    private resizeListeners: BufferResizeListener[] = [];
+
 
     constructor(device: GPUDevice) {
         this.device = device;
@@ -141,8 +146,10 @@ export class BufferManager {
             size: clampedSize,
             usage: oldBuffer.usage,
         });
-
         this.buffers.set(name, newBuffer);
+
+        this.emitResize(name, clampedSize); 
+
         return newBuffer;
     }
 
@@ -160,5 +167,15 @@ export class BufferManager {
 
         buffer.destroy();              // Release GPU memory
         this.buffers.delete(name);     // Remove reference from the map
+    }
+
+    onResize(listener: BufferResizeListener) {
+        this.resizeListeners.push(listener);
+    }
+
+    private emitResize(name: string, newSize: number) {
+        for (const listener of this.resizeListeners) {
+            listener(name, newSize);
+        }
     }
 }

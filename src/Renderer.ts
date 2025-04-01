@@ -17,6 +17,7 @@ import { BindGroupManager } from "./BindGroupsManager"
 import { PipelineManager } from "./PipelineManager"
 import { WorkgroupManager } from "./WorkgroupManager"
 import { Utils } from "./Utils"
+import { Profiler } from "./Profiler"
 
 
 export class Renderer {
@@ -39,6 +40,8 @@ export class Renderer {
     bindGroupsManager: BindGroupManager;
     pipelineManager: PipelineManager;
     workgroups: WorkgroupManager;
+
+    profiler: Profiler;
 
     // Scene to render
     scene: Scene
@@ -69,8 +72,10 @@ export class Renderer {
         this.bufferManager = new BufferManager(this.device);
         this.bindGroupsManager = new BindGroupManager(this.device);
         this.pipelineManager = new PipelineManager(this.device);
-
         this.workgroups = new WorkgroupManager(this.device);
+
+        this.profiler = new Profiler(this.device);
+        this.profiler.setBufferManager(this.bufferManager);
     }
 
     async init() {

@@ -8,7 +8,7 @@ interface WorkgroupConfig {
 }
 
 export class WorkgroupManager {
-    private limits: WorkgroupLimits;
+    readonly limits: WorkgroupLimits;
     private strategies = new Map<string, WorkgroupConfig>();
     private layouts = new Map<string, WorkgroupLayout>();
 

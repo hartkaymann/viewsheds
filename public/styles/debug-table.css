@@ -1,9 +1,6 @@
 .debug-table-container {
     height: 300px;
-    width: 100%;
     box-sizing: border-box;
-    margin-top: 1em;
-    border: 1px solid #2c2c2c;
 
     display: flex;
     flex-direction: column;
