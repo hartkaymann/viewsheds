@@ -52,7 +52,7 @@ fn main(
 
     case 1u: {  // Visibility mode
       let isVisible = getBoolean(vIndex);
-      output.color = select(vec4f(1.0, 1.0, 1.0, 1.0), vec4f(1.0, 0.5, 0.3, 1.0), isVisible);
+      output.color = select(vec4f(1.0, 1.0, 1.0, 0.1), vec4f(1.0, 1.0, 1.0, 1.0), isVisible);
     }
 
     case 2u: { // Quadtree node

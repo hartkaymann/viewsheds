@@ -1,3 +1,5 @@
+import { BufferManager } from "./BufferManager";
+
 type BindGroupLayoutConfig = {
     name: string;
     label?: string;
@@ -13,12 +15,20 @@ type BindGroupConfig = {
 
 export class BindGroupManager {
     private device: GPUDevice;
+    private bufferManager: BufferManager;
+
     private layouts: Map<string, GPUBindGroupLayout> = new Map();
     private groups: Map<string, GPUBindGroup> = new Map();
     private groupEntries: Map<string, GPUBindGroupEntry[]> = new Map();
+    private bufferToGroups: Map<string, Set<string>> = new Map();
 
-    constructor(device: GPUDevice) {
+    constructor(device: GPUDevice, bufferManager: BufferManager) {
         this.device = device;
+        this.bufferManager = bufferManager;
+
+        this.bufferManager.onResize((name, newSize) => {
+            this.handleBufferResized(name);
+        });
     }
 
     createLayout(config: BindGroupLayoutConfig): GPUBindGroupLayout {
@@ -41,6 +51,7 @@ export class BindGroupManager {
         });
         this.groups.set(config.name, group);
         this.groupEntries.set(config.name, config.entries);
+
         return group;
     }
 
@@ -70,6 +81,32 @@ export class BindGroupManager {
 
         this.groups.set(name, updatedGroup);
         this.groupEntries.set(name, entries);
+    }
+
+    private handleBufferResized(bufferName: string) {
+        const newBuffer = this.bufferManager.get(bufferName);
+        if (!newBuffer) return;
+
+        for (const [groupName, entries] of this.groupEntries.entries()) {
+            let needsUpdate = false;
+            const updatedEntries = entries.map(entry => {
+                const resource = entry.resource as { buffer: GPUBuffer };
+                const oldBuffer = resource.buffer;
+
+                if (!oldBuffer.label) throw new Error("Buffer missing label for identification");
+                const name = oldBuffer.label!;
+
+                if (name === bufferName) {
+                    needsUpdate = true;
+                    return { ...entry, resource: { buffer: newBuffer } };
+                }
+                return entry;
+            });
+
+            if (needsUpdate) {
+                this.updateGroup(groupName, updatedEntries);
+            }
+        }
     }
 
     getLayouts(names: string[]): GPUBindGroupLayout[] | undefined {

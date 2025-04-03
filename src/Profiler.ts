@@ -30,7 +30,7 @@ export class Profiler {
         this.bufferManager = manager;
 
         manager.onResize((name, newSize) => {
-            this.updatePanel();
+            this.updateBufferSizePanel();
         });
     }
 
@@ -137,7 +137,7 @@ export class Profiler {
         return null;
     }
 
-    updatePanel() {
+    updateBufferSizePanel() {
         const totalSizeMB = this.getTotalBufferSize() / 1024 / 1024;
         const gpuMemEl = document.getElementById("gpu-mem")!;
         const listEl = document.getElementById("buffer-list")!;

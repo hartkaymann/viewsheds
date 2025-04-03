@@ -70,7 +70,7 @@ export class Renderer {
         this.device = device;
 
         this.bufferManager = new BufferManager(this.device);
-        this.bindGroupsManager = new BindGroupManager(this.device);
+        this.bindGroupsManager = new BindGroupManager(this.device, this.bufferManager);
         this.pipelineManager = new PipelineManager(this.device);
         this.workgroups = new WorkgroupManager(this.device);
 
@@ -182,7 +182,7 @@ export class Renderer {
                 size: this.raySamples[0] * this.raySamples[1] * QuadTree.noMaxNodesHit(this.scene.tree.depth) * 4,
                 usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC,
             },
-            
+
         ]);
 
         this.bindGroupsManager.createLayout({
@@ -638,16 +638,6 @@ export class Renderer {
 
         this.bufferManager.resize("point_visibility", Math.ceil(this.scene.points.length / 3 / 32) * Uint32Array.BYTES_PER_ELEMENT);
 
-        this.bindGroupsManager.updateGroup("render", [
-            { binding: 0, resource: { buffer: this.bufferManager.get("points") } },
-            { binding: 2, resource: { buffer: this.bufferManager.get("point_visibility") } },
-        ]);
-
-        this.bindGroupsManager.updateGroup("collision", [
-            { binding: 0, resource: { buffer: this.bufferManager.get("points") } },
-            { binding: 3, resource: { buffer: this.bufferManager.get("point_visibility") } },
-        ]);
-
         this.canRender.points = true;
     }
 
@@ -667,29 +657,6 @@ export class Renderer {
 
         this.bufferManager.write("nodes", this.scene.tree.flatten());
         this.bufferManager.write("point_to_node", this.scene.tree.mapPointsToNodes());
-
-        this.bindGroupsManager.updateGroup("find", [
-            { binding: 0, resource: { buffer: this.bufferManager.get("nodes") } },
-            { binding: 2, resource: { buffer: this.bufferManager.get("ray_nodes") } },
-            { binding: 3, resource: { buffer: this.bufferManager.get("node_visibility") } },
-        ]);
-
-        this.bindGroupsManager.updateGroup("sort", [
-            { binding: 0, resource: { buffer: this.bufferManager.get("nodes") } },
-            { binding: 2, resource: { buffer: this.bufferManager.get("ray_nodes") } },
-            { binding: 3, resource: { buffer: this.bufferManager.get("debug_distance") } },
-        ]);
-
-        this.bindGroupsManager.updateGroup("points", [
-            { binding: 1, resource: { buffer: this.bufferManager.get("nodes") } },
-            { binding: 2, resource: { buffer: this.bufferManager.get("point_to_node") } },
-        ]);
-
-        this.bindGroupsManager.updateGroup("nodes", [
-            { binding: 1, resource: { buffer: this.bufferManager.get("nodes") } },
-            { binding: 2, resource: { buffer: this.bufferManager.get("node_visibility") } },
-            { binding: 3, resource: { buffer: this.bufferManager.get("ray_nodes") } },
-        ]);
 
         this.pipelineManager.update("render-nodes", {
             constants: {
@@ -736,15 +703,6 @@ export class Renderer {
 
         this.bufferManager.resize("node_to_triangle", this.scene.nodeToTriangles.byteLength);
         this.bufferManager.write("node_to_triangle", this.scene.nodeToTriangles);
-
-        this.bindGroupsManager.updateGroup("render", [
-            { binding: 1, resource: { buffer: this.bufferManager.get("indices") } },
-        ]);
-
-        this.bindGroupsManager.updateGroup("collision", [
-            { binding: 1, resource: { buffer: this.bufferManager.get("indices") } },
-            { binding: 2, resource: { buffer: this.bufferManager.get("node_to_triangle") } },
-        ]);
 
         this.canRender.mesh = true;
     }
@@ -1167,8 +1125,8 @@ export class Renderer {
 
         if (oldX !== this.raySamples[0] || oldY !== this.raySamples[1]) {
             this.resizeRayRelatedBuffers();
-            this.updateRayRelatedBindGroups();
-            this.updateRayWorkgroupsAndPipelines();
+            this.updateRayWorkgroups();
+            this.updateRayPipelines();
         }
         this.runGenerateRays();
     }
@@ -1208,71 +1166,36 @@ export class Renderer {
         this.bufferManager.resize("copy_indices_buffer", rayCount * maxNodesHit * 4);
     }
 
-    updateRayRelatedBindGroups() {
-        this.bindGroupsManager.updateGroup("rays", [
-            { binding: 0, resource: { buffer: this.bufferManager.get("rays") } },
-        ]);
-
-        this.bindGroupsManager.updateGroup("find", [
-            { binding: 1, resource: { buffer: this.bufferManager.get("ray_node_counts") } },
-            { binding: 2, resource: { buffer: this.bufferManager.get("ray_nodes") } },
-        ]);
-
-        this.bindGroupsManager.updateGroup("sort", [
-            { binding: 1, resource: { buffer: this.bufferManager.get("ray_node_counts") } },
-            { binding: 2, resource: { buffer: this.bufferManager.get("ray_nodes") } },
-            { binding: 3, resource: { buffer: this.bufferManager.get("debug_distance") } },
-        ]);
-
-        this.bindGroupsManager.updateGroup("render", [
-            { binding: 5, resource: { buffer: this.bufferManager.get("rays") } }
-        ]);
-
-        this.bindGroupsManager.updateGroup("nodes", [
-            { binding: 3, resource: { buffer: this.bufferManager.get("ray_nodes") } },
-        ]);
-    }
-
-    updateRayWorkgroupsAndPipelines() {
+    updateRayWorkgroups() {
         this.workgroups.update("2d-grid-per-ray", {
             problemSize: [this.raySamples[0], this.raySamples[1], 1],
         });
         this.workgroups.update("workgroup-per-ray", {
             problemSize: [this.raySamples[0] * this.raySamples[1], 1, 1],
         });
-        const linearLayout = this.workgroups.getLayout("workgroup-per-ray");
+    }
+
+    updateRayPipelines() {
         const gridLayout = this.workgroups.getLayout("2d-grid-per-ray");
+        const linearLayout = this.workgroups.getLayout("workgroup-per-ray");
 
-        this.pipelineManager.update("rays-generate", {
-            codeConstants: {
-                WORKGROUP_SIZE_X: gridLayout.workgroupSize[0],
-                WORKGROUP_SIZE_Y: gridLayout.workgroupSize[1],
-                WORKGROUP_SIZE_Z: gridLayout.workgroupSize[2],
-            }
-        });
+        const gridConstants = {
+            WORKGROUP_SIZE_X: gridLayout.workgroupSize[0],
+            WORKGROUP_SIZE_Y: gridLayout.workgroupSize[1],
+            WORKGROUP_SIZE_Z: gridLayout.workgroupSize[2],
+        };
 
-        this.pipelineManager.update("find-leaves", {
-            codeConstants: {
-                WORKGROUP_SIZE_X: gridLayout.workgroupSize[0],
-                WORKGROUP_SIZE_Y: gridLayout.workgroupSize[1],
-                WORKGROUP_SIZE_Z: gridLayout.workgroupSize[2],
-            }
-        });
-
-        this.pipelineManager.update("collision", {
-            codeConstants: {
-                WORKGROUP_SIZE_X: gridLayout.workgroupSize[0],
-                WORKGROUP_SIZE_Y: gridLayout.workgroupSize[1],
-                WORKGROUP_SIZE_Z: gridLayout.workgroupSize[2],
-            }
-        });
+        this.pipelineManager.update("rays-generate", { codeConstants: gridConstants });
+        this.pipelineManager.update("find-leaves", { codeConstants: gridConstants });
+        this.pipelineManager.update("collision", { codeConstants: gridConstants });
 
         this.pipelineManager.update("bitonic-sort", {
             codeConstants: {
                 WORKGROUP_SIZE: linearLayout.workgroupSize[0],
-            },
+            }
         });
     }
+
 
     calculateFPS(currTime: number) {
         this.frameCount++;
