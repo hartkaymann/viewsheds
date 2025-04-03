@@ -33,7 +33,7 @@ export class Renderer {
     depthTexture: GPUTexture;
     depthView: GPUTextureView;
 
-    raySamples: Uint32Array = new Uint32Array([1, 1]);
+    raySamples: [number, number] = [1, 1];
 
     // Managers
     bufferManager: BufferManager;
@@ -182,16 +182,7 @@ export class Renderer {
                 size: this.raySamples[0] * this.raySamples[1] * QuadTree.noMaxNodesHit(this.scene.tree.depth) * 4,
                 usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC,
             },
-            {
-                name: "timestamp_resolve",
-                size: 2 * 8,
-                usage: GPUBufferUsage.QUERY_RESOLVE | GPUBufferUsage.COPY_SRC,
-            },
-            {
-                name: "timestamp_result",
-                size: 2 * 8,
-                usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
-            }
+            
         ]);
 
         this.bindGroupsManager.createLayout({
@@ -807,7 +798,7 @@ export class Renderer {
         const gridLayout = this.workgroups.getLayout("2d-grid-per-ray");
 
         this.pipelineManager.create({
-            name: "generate-rays",
+            name: "rays-generate",
             type: "compute",
             layout: pipelineLayoutRays,
             code: generate_rays_src,
@@ -917,6 +908,12 @@ export class Renderer {
                 entryPoint: "main",
             }
         });
+
+        // Register compute passes for timestamp queries
+        this.profiler.registerTimer("rays-generate");
+        this.profiler.registerTimer("nodes-find");
+        this.profiler.registerTimer("nodes-sort");
+        this.profiler.registerTimer("collision");
     }
 
     startRendering() {
@@ -958,157 +955,67 @@ export class Renderer {
         this.bufferManager.clear("debug_distance");
         this.bufferManager.clear("node_visibility");
 
-        const computeEncoder: GPUCommandEncoder = this.device.createCommandEncoder();
-        const computePass: GPUComputePassEncoder = computeEncoder.beginComputePass();
+        const encoderFind: GPUCommandEncoder = this.device.createCommandEncoder();
+        const passFind = this.profiler.beginComputePass("nodes-find", encoderFind);
+        this.computeFindLeaves(passFind);
+        passFind.end();
+        this.profiler.endComputePass("nodes-find", encoderFind);
 
-        this.computeFindLeaves(computePass);
+
 
         const sortNodesCheckbox = <HTMLInputElement>document.getElementById("sortNodes");
         const sortNodes = sortNodesCheckbox.checked;
-
         if (sortNodes) {
-            this.computebitonicSort(computePass);
+            const encoderSort: GPUCommandEncoder = this.device.createCommandEncoder();
+            const passSort = this.profiler.beginComputePass("nodes-sort", encoderSort);
+            this.computebitonicSort(passSort);
+            passSort.end();
+            this.profiler.endComputePass("nodes-sort", encoderSort);
         }
 
-        computePass.end();
-
-        let distancesBuffer: GPUBuffer | undefined;
-        let indicesBuffer: GPUBuffer | undefined;
-
-        const rayCount = this.raySamples[0] * this.raySamples[1];
-        const bufferSize = rayCount * QuadTree.noMaxNodesHit(this.scene.tree.depth) * 4;
-
-        distancesBuffer = this.bufferManager.get("copy_distances_buffer") ?? this.bufferManager.createBuffer(
-            "copy_distances_buffer",
-            bufferSize,
-            GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ
-        );
-
-        indicesBuffer = this.bufferManager.get("copy_indices_buffer") ?? this.bufferManager.createBuffer(
-            "copy_indices_buffer",
-            bufferSize,
-            GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ
-        );
-
-        computeEncoder.copyBufferToBuffer(
-            this.bufferManager.get("debug_distance"), 0,
-            distancesBuffer, 0,
-            bufferSize
-        );
-
-        computeEncoder.copyBufferToBuffer(
-            this.bufferManager.get("ray_nodes"), 0,
-            indicesBuffer, 0,
-            bufferSize
-        );
-
-        this.device.queue.submit([computeEncoder.finish()]);
-
-        if (distancesBuffer && indicesBuffer) {
-            // Map both buffers in parallel
-            await Promise.all([
-                distancesBuffer.mapAsync(GPUMapMode.READ),
-                indicesBuffer.mapAsync(GPUMapMode.READ),
-            ]);
-
-            const distanceArray = new Float32Array(distancesBuffer.getMappedRange().slice(0));
-            const indexArray = new Uint32Array(indicesBuffer.getMappedRange().slice(0));
-
-            const rayCount = this.raySamples[0] * this.raySamples[1];
-            const blockSize = QuadTree.noMaxNodesHit(this.scene.tree.depth);
-            Utils.displayRayData(indexArray, distanceArray, rayCount, blockSize);
-        }
-
-        distancesBuffer.unmap();
-        indicesBuffer.unmap();
+        Utils.copyAndDisplayRayDebugData(this.device, this.bufferManager, this.raySamples, this.scene.tree.depth);
     }
 
     async runGenerateRays() {
         this.bufferManager.clear("rays");
 
-        let gpuTime = 0;
-        const resolveBuffer = this.bufferManager.get("timestamp_resolve");
-        const resultBuffer = this.bufferManager.get("timestamp_result");
-
-        const canTimestamp = this.device.features.has('timestamp-query');
-        const { querySet } = (() => {
-            if (!canTimestamp) {
-                return {};
-            }
-
-            const querySet = this.device.createQuerySet({
-                type: 'timestamp',
-                count: 2,
-            });
-            return { querySet };
-        })();
-
-        const descriptor: GPUComputePassDescriptor = {
-            ...(canTimestamp && {
-                timestampWrites: {
-                    querySet,
-                    beginningOfPassWriteIndex: 0,
-                    endOfPassWriteIndex: 1,
-                },
-            }),
-        };
-        const computeEncoder: GPUCommandEncoder = this.device.createCommandEncoder();
-        const computePass: GPUComputePassEncoder = computeEncoder.beginComputePass(descriptor);
+        const encoder: GPUCommandEncoder = this.device.createCommandEncoder();
+        const pass = this.profiler.beginComputePass("rays-generate", encoder);
 
         const gridLayout = this.workgroups.getLayout("2d-grid-per-ray");
         const dispatchX = gridLayout.dispatchSize[0];
         const dispatchY = gridLayout.dispatchSize[1];
         const dispatchZ = gridLayout.dispatchSize[2];
 
-        computePass.setPipeline(this.pipelineManager.get<GPUComputePipeline>("generate-rays"));
-        computePass.setBindGroup(0, this.bindGroupsManager.getGroup("compute-uniforms"));
-        computePass.setBindGroup(1, this.bindGroupsManager.getGroup("rays"));
-        computePass.dispatchWorkgroups(dispatchX, dispatchY, dispatchZ);
-        computePass.end();
+        pass.setPipeline(this.pipelineManager.get<GPUComputePipeline>("rays-generate"));
+        pass.setBindGroup(0, this.bindGroupsManager.getGroup("compute-uniforms"));
+        pass.setBindGroup(1, this.bindGroupsManager.getGroup("rays"));
+        pass.dispatchWorkgroups(dispatchX, dispatchY, dispatchZ);
+        pass.end();
 
-        if (canTimestamp) {
-            computeEncoder.resolveQuerySet(querySet, 0, 2, resolveBuffer, 0);
-            if (resultBuffer.mapState === 'unmapped') {
-                computeEncoder.copyBufferToBuffer(resolveBuffer, 0, resultBuffer, 0, resultBuffer.size);
-            }
-        }
-
-        this.device.queue.submit([computeEncoder.finish()]);
+        this.profiler.endComputePass("rays-generate", encoder);
 
         await this.device.queue.onSubmittedWorkDone();
-
-        try {
-            await resultBuffer.mapAsync(GPUMapMode.READ);
-            const range = resultBuffer.getMappedRange();
-            const times = new BigUint64Array(range);
-            const deltaUs = Number(times[1] - times[0]) / 1000;
-            console.log(`${deltaUs.toFixed(2)}µs`);
-            resultBuffer.unmap();
-        } catch (e) {
-            console.error("Failed to map result buffer:", e);
-        }
-
     }
 
     async runCollision() {
         this.bufferManager.clear("point_visibility");
 
-        const computeEncoder: GPUCommandEncoder = this.device.createCommandEncoder();
-        const computePass: GPUComputePassEncoder = computeEncoder.beginComputePass();
+        const encoder: GPUCommandEncoder = this.device.createCommandEncoder();
+        const pass = this.profiler.beginComputePass("collision", encoder);
 
         const gridLayout = this.workgroups.getLayout("2d-grid-per-ray");
         const dispatchX = gridLayout.dispatchSize[0];
         const dispatchY = gridLayout.dispatchSize[1];
         const dispatchZ = gridLayout.dispatchSize[2];
 
-        computePass.setPipeline(this.pipelineManager.get<GPUComputePipeline>("collision"));
-        computePass.setBindGroup(0, this.bindGroupsManager.getGroup("compute-uniforms"));
-        computePass.setBindGroup(1, this.bindGroupsManager.getGroup("rays"));
-        computePass.setBindGroup(2, this.bindGroupsManager.getGroup("sort"));
-        computePass.setBindGroup(3, this.bindGroupsManager.getGroup("collision"));
-        computePass.dispatchWorkgroups(dispatchX, dispatchY, dispatchZ);
-
-        computePass.end();
+        pass.setPipeline(this.pipelineManager.get<GPUComputePipeline>("collision"));
+        pass.setBindGroup(0, this.bindGroupsManager.getGroup("compute-uniforms"));
+        pass.setBindGroup(1, this.bindGroupsManager.getGroup("rays"));
+        pass.setBindGroup(2, this.bindGroupsManager.getGroup("sort"));
+        pass.setBindGroup(3, this.bindGroupsManager.getGroup("collision"));
+        pass.dispatchWorkgroups(dispatchX, dispatchY, dispatchZ);
+        pass.end();
 
         const pointVisibilityBuffer = this.bufferManager.get("point_visibility");
         const visibilityByteLength = pointVisibilityBuffer.size;
@@ -1117,13 +1024,13 @@ export class Renderer {
             usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
         });
 
-        computeEncoder.copyBufferToBuffer(
+        encoder.copyBufferToBuffer(
             pointVisibilityBuffer, 0,
             readBuffer, 0,
             visibilityByteLength
         );
 
-        this.device.queue.submit([computeEncoder.finish()]);
+        this.profiler.endComputePass("collision", encoder);
 
         await this.device.queue.onSubmittedWorkDone();
         await readBuffer.mapAsync(GPUMapMode.READ);
@@ -1144,8 +1051,6 @@ export class Renderer {
         }
 
         readBuffer.unmap();
-
-        console.log(`Visible point indices (${visiblePoints.length}):`, visiblePoints);
     }
 
     computeFindLeaves(pass: GPUComputePassEncoder) {
@@ -1338,7 +1243,7 @@ export class Renderer {
         const linearLayout = this.workgroups.getLayout("workgroup-per-ray");
         const gridLayout = this.workgroups.getLayout("2d-grid-per-ray");
 
-        this.pipelineManager.update("generate-rays", {
+        this.pipelineManager.update("rays-generate", {
             codeConstants: {
                 WORKGROUP_SIZE_X: gridLayout.workgroupSize[0],
                 WORKGROUP_SIZE_Y: gridLayout.workgroupSize[1],
@@ -1392,6 +1297,18 @@ export class Renderer {
             mesh: false,
             nodes: false,
         }
+
+        const runNodesButton = document.getElementById("runNodes") as HTMLButtonElement;
+        if (runNodesButton) {
+            runNodesButton.disabled = true;
+        }
+
+        const runPointsButton = document.getElementById("runPoints") as HTMLButtonElement;
+        if (runPointsButton) {
+            runPointsButton.disabled = true;
+        }
+
+
         this.stopRendering();
         this.init();
         this.startRendering();

@@ -8,12 +8,15 @@ import { Bounds } from "../types/types";
 import Delaunator from "delaunator";
 
 let lasFile: LASFile | null = null;
+let shouldShutdown = false;
 
 self.onmessage = async (e) => {
     const msg = e.data;
     try {
         switch (msg.type) {
             case "load-url": {
+                if (shouldShutdown) return;
+
                 const { url } = msg;
 
                 console.log(`Checking cache for: ${url}`);
@@ -21,6 +24,8 @@ self.onmessage = async (e) => {
                 const cached = await loadFromCache(url);
                 if (cached) {
                     const bounds = calculateBounds(cached.points);
+
+                    if (shouldShutdown) return;
                     postMessage(
                         { type: "loaded", ...cached, bounds },
                         [cached.points.buffer, cached.colors?.buffer, cached.classification?.buffer].filter(Boolean)
@@ -32,6 +37,9 @@ self.onmessage = async (e) => {
                 const { points, colors, classification, bounds } = sortPointCloud(rawPoints, rawColors, rawClassification);
 
                 await storeInCache(url, points, colors, classification);
+
+
+                if (shouldShutdown) return;
                 self.postMessage(
                     { type: "loaded", points, colors, classification, bounds },
                     [points.buffer, colors.buffer, classification.buffer]
@@ -40,11 +48,14 @@ self.onmessage = async (e) => {
             }
 
             case "load-arraybuffer": {
+                if (shouldShutdown) return;
+
                 const { buffer, name } = msg;
 
                 const { points: rawPoints, colors: rawColors, classification: rawClassification } = await loadFromBuffer(buffer);
                 const { points, colors, classification, bounds } = sortPointCloud(rawPoints, rawColors, rawClassification);
 
+                if (shouldShutdown) return;
                 self.postMessage(
                     { type: "loaded", points, colors, classification, bounds },
                     [points.buffer, colors.buffer, classification.buffer]
@@ -53,18 +64,23 @@ self.onmessage = async (e) => {
             }
 
             case "build-tree": {
+                if (shouldShutdown) return;
+
                 const { points, bounds, depth } = msg;
                 const tree = await createQuadtree(points, bounds, depth);
 
+                if (shouldShutdown) return;
                 postMessage({ type: "tree-built", tree: tree.flatten() });
 
                 const result = performTriangulation(points, tree);
 
+                if (shouldShutdown) return;
                 postMessage({ type: "triangulated", ...result });
                 return;
             }
 
             case "shutdown":
+                shouldShutdown = true;
                 if (lasFile) {
                     lasFile.close();
                 }

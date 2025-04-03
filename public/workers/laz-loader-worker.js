@@ -46,6 +46,10 @@ function handleEvent(msg) {
 			const scriptURL = `${baseUrl}workers/laz-perf.js`;
 
 			try {
+				self.Module = {
+					TOTAL_MEMORY: 256 * 1024 * 1024 // 256 MB
+				};
+
 				importScripts(scriptURL);
 				lazLoaded = true;
 			} catch (err) {

@@ -83,9 +83,23 @@
       </div>
 
       <div class="panel" id="profiler-panel">
-        <div id="gpu-mem">GPU: -- MB</div>
-        <div id="buffer-toggle">▼ Show Buffers</div>
-        <div id="buffer-list"></div>
+        <div>
+          <div id="gpu-mem">Buffers Total: -- MB</div>
+          <div id="buffer-toggle">&#x25B6; Show Buffers</div>
+          <div id="buffer-list"></div>
+        </div>
+        <div id="gpu-timers" style="margin-top: 1em;">
+          <div id="gpu-timer-title" style="margin-bottom: 0.5em;">Shader Timings</div>
+          <table id="gpu-timer-table" style="width: 100%; font-family: monospace; color: #ccc;">
+            <thead>
+              <tr style="text-align: left;">
+                <th>Shader</th>
+                <th style="text-align: right;">Time (µs)</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
       </div>
 
     </div>

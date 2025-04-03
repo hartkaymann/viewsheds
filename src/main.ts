@@ -126,7 +126,8 @@ async function main() {
 
             scene.clear();
             renderer.reset();
-            sceneLoader.worker.postMessage({ type: "shutdown" });
+
+            sceneLoader.shutdown();
             sceneLoader = setupSceneLoader();
 
             reader.readAsArrayBuffer(file);

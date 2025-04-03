@@ -61,8 +61,11 @@ export class SceneLoader {
         this.worker.postMessage({ type: "build-tree", points, bounds, depth });
     }
 
-    terminate() {
-        this.worker.terminate();
+    shutdown() {
+        this.worker.postMessage({ type: "shutdown" });
+        setTimeout(() => {
+            this.worker.terminate();
+        }, 50);
     }
 
     setCallbacks(callbacks: Partial<SceneLoaderCallbacks>) {
