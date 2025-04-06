@@ -1,13 +1,14 @@
 /// <reference lib="webworker" />
 /// <reference types="vite/client" />
 
+import lazPerfUrl from 'laz-perf/lib/laz-perf.wasm?url';
+import { createLazPerf } from "laz-perf";
+
 import { vec3 } from "gl-matrix";
-import { LASDecoder, LASFile } from "./laslaz";
 import { MortonSorter, QuadTree } from "../Optimization";
 import { Bounds } from "../types/types";
 import Delaunator from "delaunator";
 
-let lasFile: LASFile | null = null;
 let shouldShutdown = false;
 
 self.onmessage = async (e) => {
@@ -47,22 +48,6 @@ self.onmessage = async (e) => {
                 return;
             }
 
-            case "load-arraybuffer": {
-                if (shouldShutdown) return;
-
-                const { buffer, name } = msg;
-
-                const { points: rawPoints, colors: rawColors, classification: rawClassification } = await loadFromBuffer(buffer);
-                const { points, colors, classification, bounds } = sortPointCloud(rawPoints, rawColors, rawClassification);
-
-                if (shouldShutdown) return;
-                self.postMessage(
-                    { type: "loaded", points, colors, classification, bounds },
-                    [points.buffer, colors.buffer, classification.buffer]
-                );
-                return;
-            }
-
             case "build-tree": {
                 if (shouldShutdown) return;
 
@@ -81,9 +66,6 @@ self.onmessage = async (e) => {
 
             case "shutdown":
                 shouldShutdown = true;
-                if (lasFile) {
-                    lasFile.close();
-                }
                 self.close();
                 break;
         }
@@ -166,81 +148,132 @@ function loadFromCache(url: string): Promise<{
     });
 }
 
-
-async function loadFromFile(url: string): Promise<{ points: Float32Array, colors: Float32Array, classification: Uint32Array }> {
-    console.log(`Fetching binary data from: ${url}`);
-
-    // Fetch the LAZ/LAS file as an ArrayBuffer
-    const response = await fetch(`${url}?nocache=${Date.now()}`);
-    if (!response.ok) throw new Error(`Failed to load file: ${response.statusText}`);
-    const arrayBuffer = await response.arrayBuffer();
-
-    console.log("Successfully fetched file, initializing LAS/LAZ parser...");
-    return parseLASPoints(arrayBuffer);
-}
-
-async function loadFromBuffer(buffer: ArrayBuffer): Promise<{ points: Float32Array, colors: Float32Array, classification: Uint32Array }> {
-    console.log("Successfully fetched file, initializing LAS/LAZ parser...");
-    return parseLASPoints(buffer);
-}
-
-async function parseLASPoints(arrayBuffer: ArrayBuffer): Promise<{
+async function loadFromFile(url: string): Promise<{
     points: Float32Array,
     colors: Float32Array,
     classification: Uint32Array
 }> {
-    lasFile = new LASFile(arrayBuffer);
-    await lasFile.open();
+    console.log(`Fetching binary data from: ${url}`);
 
-    const header = await lasFile.getHeader();
-    const totalPoints = header.pointsCount;
+    const response = await fetch(`${url}?nocache=${Date.now()}`);
+    if (!response.ok) throw new Error(`Failed to load file: ${response.statusText}`);
 
-    const data = await lasFile.readData(totalPoints, 0, 1);
-    const decoder = new LASDecoder(data.buffer, totalPoints, header);
+    const arrayBuffer = await response.arrayBuffer();
+    console.log("Successfully fetched file, initializing LAS/LAZ parser...");
 
-    const points = new Float32Array(totalPoints * 4);
-    const colors: Float32Array = new Float32Array(totalPoints * 4);
-    const classification = new Uint32Array(totalPoints);
+    return parseLASPoints(arrayBuffer);
+}
 
-    let extractedCount = 0;
-    for (let i = 0; i < totalPoints; i++) {
-        const point = decoder.getPoint(i);
+async function parseLASPoints(arrayBuffer: ArrayBuffer): Promise<{
+    points: Float32Array | null,
+    colors: Float32Array | null,
+    classification: Uint32Array | null
+}> {
+    const LazPerf = await createLazPerf({
+        locateFile: () => lazPerfUrl
+    });
 
-        // Position
-        const position = vec3.create();
-        vec3.multiply(position, point.position, header.scale);
-        vec3.add(position, position, header.offset);
-        position[0] -= header.mins[0];
-        position[1] -= header.mins[1];
-        position[2] -= header.mins[2];
+    const laszip = new LazPerf.LASZip();
 
-        points[extractedCount * 4] = position[0];
-        points[extractedCount * 4 + 1] = position[2]; // swap y/z
-        points[extractedCount * 4 + 2] = position[1];
-        points[extractedCount * 4 + 3] = 1.0;
+    const {
+        pointCount,
+        pointDataRecordLength,
+        pointDataRecordFormat,
+        scale,
+        offset,
+        min,
+        max
+    } = parseHeader(arrayBuffer);
 
-        if (point.color) {
-            const color = vec3.create();
-            vec3.scale(color, point.color, 1 / 255);
-            colors[extractedCount * 4] = color[0];
-            colors[extractedCount * 4 + 1] = color[1];
-            colors[extractedCount * 4 + 2] = color[2];
-            colors[extractedCount * 4 + 3] = 1.0;
-        } else {
-            colors.set([255, 255, 255, 1], extractedCount * 4);
+    const uint8 = new Uint8Array(arrayBuffer);
+    const filePtr = LazPerf._malloc(uint8.byteLength);
+    LazPerf.HEAPU8.set(uint8, filePtr);
+    laszip.open(filePtr, uint8.byteLength);
+
+    const dataPtr = LazPerf._malloc(pointDataRecordLength);
+
+    const positions = new Float32Array(pointCount * 4);
+    const classifications = new Uint32Array(pointCount);
+    const colors = new Float32Array(pointCount * 4);
+
+    for (let i = 0; i < pointCount; ++i) {
+        laszip.getPoint(dataPtr);
+
+        const raw = LazPerf.HEAPU8.subarray(dataPtr, dataPtr + pointDataRecordLength);
+        const view = new DataView(raw.buffer, raw.byteOffset, raw.byteLength);
+
+        const ix = view.getInt32(0, true);
+        const iy = view.getInt32(4, true);
+        const iz = view.getInt32(8, true);
+
+        const x = ix * scale[0] + offset[0];
+        const y = iy * scale[1] + offset[1];
+        const z = iz * scale[2] + offset[2];
+        const w = 1.0;
+
+        positions.set([x, z, y, w], i * 4); // Swap y and z
+
+        const classification = raw[15];
+        classifications[i] = classification;
+
+        // Optional color (only for formats with RGB: 2, 3, 5, 7, 8, 10)
+        if (pointDataRecordFormat === 2 || pointDataRecordFormat === 3 || pointDataRecordFormat >= 5) {
+            const r = view.getUint16(20, true) / 65535;
+            const g = view.getUint16(22, true) / 65535;
+            const b = view.getUint16(24, true) / 65535;
+            const a = 1.0;
+            colors.set([r, g, b, a], i * 4);
         }
-
-        if (point.classification) {
-            classification[extractedCount] = point.classification;
-        } else {
-            classification[extractedCount] = 0;
-        }
-
-        extractedCount++;
     }
 
-    await lasFile.close();
-    return { points, colors, classification };
+    // Clean up
+    LazPerf._free(filePtr);
+    LazPerf._free(dataPtr);
+    laszip.delete();
+
+    return {
+        points: positions,
+        colors,
+        classification: classifications
+    };
+    // for (let i = 0; i < totalPoints; i++) {
+    //     const point = decoder.getPoint(i);
+
+    //     // Position
+    //     const position = vec3.create();
+    //     vec3.multiply(position, point.position, header.scale);
+    //     vec3.add(position, position, header.offset);
+    //     position[0] -= header.mins[0];
+    //     position[1] -= header.mins[1];
+    //     position[2] -= header.mins[2];
+
+    //     points[extractedCount * 4] = position[0];
+    //     points[extractedCount * 4 + 1] = position[2]; // swap y/z
+    //     points[extractedCount * 4 + 2] = position[1];
+    //     points[extractedCount * 4 + 3] = 1.0;
+
+    //     if (point.color) {
+    //         const color = vec3.create();
+    //         vec3.scale(color, point.color, 1 / 255);
+    //         colors[extractedCount * 4] = color[0];
+    //         colors[extractedCount * 4 + 1] = color[1];
+    //         colors[extractedCount * 4 + 2] = color[2];
+    //         colors[extractedCount * 4 + 3] = 1.0;
+    //     } else {
+    //         colors.set([255, 255, 255, 1], extractedCount * 4);
+    //     }
+
+    //     if (point.classification) {
+    //         classification[extractedCount] = point.classification;
+    //     } else {
+    //         classification[extractedCount] = 0;
+    //     }
+
+    //     extractedCount++;
+    // }
+
+    // await lasFile.close();
+    // return { points, colors, classification };
 }
 
 async function storeInCache(
@@ -377,5 +410,45 @@ function performTriangulation(
         triangleCount,
         treeData: tree.flatten(),
         nodeToTriangles,
+    };
+
+}
+
+function parseHeader(arrayBuffer: ArrayBuffer) {
+    const view = new DataView(arrayBuffer);
+
+    const pointCount = view.getUint32(107, true);
+    const pointDataRecordLength = view.getUint16(105, true);
+    const pointDataRecordFormat = view.getUint8(104);
+
+    const scale = [
+        view.getFloat64(131, true),
+        view.getFloat64(139, true),
+        view.getFloat64(147, true),
+    ];
+    const offset = [
+        view.getFloat64(155, true),
+        view.getFloat64(163, true),
+        view.getFloat64(171, true),
+    ];
+    const max = [
+        view.getFloat64(179, true),
+        view.getFloat64(195, true),
+        view.getFloat64(211, true),
+    ]
+    const min = [
+        view.getFloat64(187, true),
+        view.getFloat64(203, true),
+        view.getFloat64(219, true),
+    ]
+
+    return {
+        pointCount,
+        pointDataRecordLength,
+        pointDataRecordFormat,
+        scale,
+        offset,
+        min,
+        max,
     };
 }

@@ -46,8 +46,7 @@ fn main(
  
   switch renderMode {
     case 0u: {  // Vertex color mode
-      let colFac = 0.00392156862; // 1/255
-      output.color = color * vec4f(colFac, colFac, colFac, 1.0);
+      output.color = vec4f(color.xyz, 1.0);
     }
 
     case 1u: {  // Visibility mode

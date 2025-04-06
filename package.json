@@ -20,6 +20,7 @@
     "bluebird": "^3.7.2",
     "delaunator": "^5.0.1",
     "gl-matrix": "^3.4.3",
-    "jquery": "^3.7.1"
+    "jquery": "^3.7.1",
+    "laz-perf": "^0.0.7"
   }
 }

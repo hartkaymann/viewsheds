@@ -66,4 +66,15 @@ export class Utils {
         });
         rayDataTable.displayRayData();
     }
+
+    static showToast(message: string, type: 'error' | 'warn' = 'error') {
+        const toast = document.createElement('div');
+        toast.className = `toast ${type}`;
+        toast.textContent = message;
+
+        const container = document.getElementById('toast-container');
+        container?.appendChild(toast);
+
+        setTimeout(() => toast.remove(), 5000);
+    }
 }

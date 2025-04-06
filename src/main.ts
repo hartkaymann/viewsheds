@@ -7,13 +7,44 @@ import { SceneLoader } from "./SceneLoader";
 import { QuadTree } from "./Optimization";
 
 import SceneWorker from './workers/SceneWorker.ts?worker';
+import { Utils } from "./Utils";
+
+declare global {
+    interface Window {
+        _consoleError?: typeof console.error;
+        _consoleWarn?: typeof console.warn;
+    }
+}
 
 async function main() {
+    // Setup up toasts
+    window._consoleError = window.console.error;
+    window._consoleWarn = window.console.warn;
+
+    console.error = (...args) => {
+        Utils.showToast(args.join(' '), 'error');
+        window._consoleError?.(...args);
+    };
+
+    console.warn = (...args) => {
+        Utils.showToast(args.join(' '), 'warn');
+        window._consoleWarn?.(...args);
+    };
+
+    // Create device
     const deviceManager = new DeviceManager();
     try {
         await deviceManager.init();
     } catch (e) {
         console.error("WebGPU init failed:", e);
+
+        const fallback = document.getElementById("fallback-message");
+        const canvas = document.getElementById("gfx-main");
+        if (fallback && canvas) {
+            fallback.style.display = "block";
+            canvas.style.display = "none";
+        }
+        
         return; // TODO: Show fallback UI
     }
 

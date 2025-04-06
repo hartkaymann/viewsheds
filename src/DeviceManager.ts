@@ -1,3 +1,5 @@
+import { Utils } from "./Utils";
+
 export class DeviceManager {
     private adapter!: GPUAdapter;
     private device!: GPUDevice;
@@ -43,9 +45,10 @@ export class DeviceManager {
         try {
             await this.init();
             console.log("WebGPU device restored.");
-            // TODO: Recreate GPU resources if needed
         } catch (e) {
-            console.error("Failed to recover WebGPU device.");
+            let msg = "Failed to recover WebGPU device."; 
+            console.error(msg);
+            Utils.showToast(msg, 'error')
         }
     }
 

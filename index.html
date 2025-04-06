@@ -7,13 +7,22 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <link rel="stylesheet" href="./styles/style.css" />
   <link rel="stylesheet" href="./styles/debug-table.css" />
+  <link rel="stylesheet" href="./styles/toast.css" />
   <title>Viewshed</title>
 </head>
 
 <body>
+  <div id="toast-container"></div>
+
   <div id="main-layout">
     <div id="left-panel">
       <div class="panel" id="canvas-wrapper">
+        <div id="fallback-message" style="display: none; padding: 2em; font-family: monospace; color: red;">
+          <p>WebGPU is not supported in this browser.</p>
+          <a href="https://caniuse.com/webgpu" target="_blank" rel="noopener">
+            Check WebGPU support &#8594;
+          </a>
+        </div>
         <canvas id="gfx-main"></canvas>
         <div id="fps-counter">fps: <span id="fps"></span></div>
       </div>
@@ -22,62 +31,55 @@
 
     <div id="right-panel">
       <div class="panel" id="controls-panel">
-
         <div class="controls-container">
+          <label for="file-input">Load File:</label>
           <input type="file" id="file-input" accept=".laz,.las" />
           <button id="clear-cache">Clear Cache</button>
         </div>
 
         <div id="debug" class="debug-controls">
-          <h2>Debug:</h2>
-
-          <div class="input-group" id="rayConfigGroup">
-
-            <div class="input-group" id="raySampleInputs">
-              <label>Samples X: <input type="number" id="samplesX" value="32" step="1" min="1" max="256"></label>
-              <label>Samples Y: <input type="number" id="samplesY" value="32" step="1" min="1" max="256"></label>
-            </div>
-
-            <div class="input-group" id="originInputs">
-              <label>Origin X: <input type="number" id="originX" value="50" step="1"></label>
-              <label>Origin Y: <input type="number" id="originY" value="50" step="1"></label>
-              <label>Origin Z: <input type="number" id="originZ" value="50" step="1"></label>
-            </div>
-
-            <div class="input-group" id="thetaPhiInputs">
-              <div>
-                <label>Start Theta: <input type="number" id="startTheta" value="-0.095" step="0.087" min="-3.14"
-                    max="3.14"></label>
-                <label>End Theta: <input type="number" id="endTheta" value="1.645" step="0.087" min="-3.14"
-                    max="3.14"></label>
-              </div>
-              <div>
-                <label>Start Phi: <input type="number" id="startPhi" value="1.558" step="0.087" min="-3.14"
-                    max="3.14"></label>
-                <label>End Phi: <input type="number" id="endPhi" value="1.993" step="0.087" min="-3.14"
-                    max="3.14"></label>
-              </div>
-            </div>
+          <div class="input-group" id="raySampleInputs">
+            <label>Samples X: <input type="number" id="samplesX" value="32" step="1" min="1" max="256"></label>
+            <label>Samples Y: <input type="number" id="samplesY" value="32" step="1" min="1" max="256"></label>
           </div>
 
-          <div class="input-group">
+
+          <div class="input-group" id="originInputs">
+            <label>Origin X: <input type="number" id="originX" value="50" step="1"></label>
+            <label>Origin Y: <input type="number" id="originY" value="50" step="1"></label>
+            <label>Origin Z: <input type="number" id="originZ" value="50" step="1"></label>
+          </div>
+
+
+          <div class="input-group" id="thetaPhiInputs">
+            <label>Start Theta: <input type="number" id="startTheta" value="-0.095" step="0.087" min="-3.14"
+                max="3.14"></label>
+            <label>End Theta: <input type="number" id="endTheta" value="1.645" step="0.087" min="-3.14"
+                max="3.14"></label>
+            <label>Start Phi: <input type="number" id="startPhi" value="1.558" step="0.087" min="-3.14"
+                max="3.14"></label>
+            <label>End Phi: <input type="number" id="endPhi" value="1.993" step="0.087" min="-3.14" max="3.14"></label>
+          </div>
+
+          <div class="input-group" id="actionGroup">
             <button id="runNodes" disabled>Run Nodes</button>
             <button id="runPoints" disabled>Run Points</button>
-          </div>
-
-          <div class="input-group" id="renderSettingsGroup">
-
-            <div class="input-group" id="renderModeInputs">
-              <label>Render Mode: <input type="number" id="renderMode" value="0" min="0" max="3"></label>
-            </div>
-
-            <div class="input-group toggles">
-              <label><input type="checkbox" id="renderPoints" checked> Render Points</label>
-              <label><input type="checkbox" id="renderMesh"> Render Mesh</label>
-              <label><input type="checkbox" id="renderRays" checked> Render Rays</label>
-              <label><input type="checkbox" id="showNodes" checked> Show Nodes</label>
+            <div class="full-width">
               <label><input type="checkbox" id="sortNodes" checked> Sort Nodes</label>
             </div>
+          </div>
+
+
+          <div class="input-group" id="renderModeInputs">
+            <label>Render Mode: <input type="number" id="renderMode" value="0" min="0" max="3"></label>
+          </div>
+
+
+          <div class="input-group toggles">
+            <label><input type="checkbox" id="renderPoints" checked> Render Points</label>
+            <label><input type="checkbox" id="renderMesh"> Render Mesh</label>
+            <label><input type="checkbox" id="renderRays" checked> Render Rays</label>
+            <label><input type="checkbox" id="showNodes" checked> Show Nodes</label>
           </div>
         </div>
       </div>
@@ -101,9 +103,9 @@
           </table>
         </div>
       </div>
-
     </div>
   </div>
+
 
   <script type="module" src="src/main.ts"></script>
 </body>

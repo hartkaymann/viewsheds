@@ -82,40 +82,121 @@ canvas#gfx-main {
 
 #controls-panel {
   flex: 1 1 auto;
-  /* Allow growing */
+  display: flex;
+  flex-direction: column;
   overflow: hidden;
-}
-
-.controls-container,
-.debug-controls {
   color: #eee;
   font-family: monospace;
-  padding: 1em;
-  max-width: 800px;
+}
+
+.debug-controls {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5em;
+  padding: 0.75em;
+  box-sizing: border-box;
 }
 
 .controls-container {
   display: flex;
-  gap: 1em;
+  flex-wrap: wrap;
   align-items: center;
+  gap: 0.5em;
+  padding: 1em;
+  background-color: #262626;
+  border-bottom: 1px solid #3a3a3a;
+  font-family: monospace;
+  font-size: 0.9em;
+  box-sizing: border-box;
+}
+
+.controls-container label {
+  font-size: 0.9em;
+  color: #eee;
+}
+
+.controls-container input[type="file"] {
+  flex-grow: 1;
+  max-width: 100%;
+}
+
+.controls-container button {
+  background-color: #444;
+  color: #eee;
+  border: 1px solid #666;
+  padding: 0.4em 0.8em;
+  font-family: monospace;
+  font-size: 0.9em;
+  border-radius: 0.3em;
+  cursor: pointer;
+  transition: background-color 0.2s ease;
+}
+
+.controls-container button:hover:enabled {
+  background-color: #555;
 }
 
 .input-group {
   display: flex;
   flex-wrap: wrap;
+  gap: 0.75em;
+  background-color: #2a2a2a;
+  padding: 0.75em;
+  border-radius: 0.5em;
+  border: 1px solid #3a3a3a;
+}
+
+.input-group>div {
+  display: flex;
   gap: 1em;
+}
+
+.input-group .full-width {
+  flex-basis: 100%;
 }
 
 .input-group label {
   display: flex;
   flex-direction: column;
-  font-size: 0.9em;
+  font-size: 0.85em;
+  min-width: 100px;
+  max-width: 160px;
 }
 
-.toggles label {
+.toggles {
+  flex-wrap: wrap;
+}
+
+label:has(input[type="checkbox"]) {
+  display: flex;
   flex-direction: row;
   align-items: center;
+  white-space: nowrap;
   gap: 0.5em;
+  /* Optional for spacing between checkbox and text */
+}
+
+#controls-panel .debug-controls {
+  overflow-y: auto;
+  max-height: 100%;
+}
+
+button {
+  background-color: #444;
+  color: #eee;
+  border: 1px solid #666;
+  padding: 0.4em 0.8em;
+  font-family: monospace;
+  font-size: 0.9em;
+  border-radius: 0.3em;
+  cursor: pointer;
+  transition: background-color 0.2s ease;
+}
+
+button:hover:enabled {
+  background-color: #555;
 }
 
 button:disabled {
@@ -152,4 +233,20 @@ button:disabled {
   justify-content: space-between;
   padding: 0.2em 0;
   border-bottom: 1px solid #3a3a3a;
+}
+
+#fallback-message {
+  background: #1a1a1a;
+  border: 1px solid #444;
+  border-radius: 8px;
+  text-align: center;
+  max-width: 600px;
+  margin: 2em auto;
+  font-size: 1.1em;
+}
+
+
+#fallback-message a {
+  text-decoration: underline;
+  color: #eee;
 }
