@@ -49,12 +49,13 @@ class QuadTreeNode {
     }
 
     containsPoint(px: number, pz: number): boolean {
-        const EPSILON = Math.min(this.bounds.size[0], this.bounds.size[2]) * 0.001;
+        const EPSILON = Math.max(1e-6, Math.min(this.bounds.size[0], this.bounds.size[2]) * 0.001);
+
         return (
             px >= this.bounds.pos[0] - EPSILON &&
-            px <= this.bounds.pos[0] + this.bounds.size[0] + EPSILON &&
+            px < this.bounds.pos[0] + this.bounds.size[0] + EPSILON &&
             pz >= this.bounds.pos[2] - EPSILON &&
-            pz <= this.bounds.pos[2] + this.bounds.size[2] + EPSILON
+            pz < this.bounds.pos[2] + this.bounds.size[2] + EPSILON
         );
     }
 
@@ -119,7 +120,8 @@ class QuadTreeNode {
 
             while (newEnd < endIndex) {
                 const offset = newEnd * 4;
-                let px = sortedPoints[offset], pz = sortedPoints[offset + 2];
+                let px = sortedPoints[offset];
+                let pz = sortedPoints[offset + 2];
 
                 if (child.containsPoint(px, pz)) {
                     newEnd++;
@@ -139,7 +141,7 @@ class QuadTreeNode {
                 currentStart = newEnd;
             }
             // else {
-            //      console.warn("No points assigned to child node:", child.bounds);
+            //     console.warn("No points assigned to child node:", child.bounds);
             // }
         }
     }
@@ -159,45 +161,45 @@ class QuadTreeNode {
             for (let i = 0; i < count; i++) indices[i] = i;
             return indices;
         })();
-    
+
         if (this.children === null) {
             this.startTriangleIndex = globalTriangleIndexBuffer.length;
             this.triangleCount = 0;
-    
+
             for (let i = 0; i < trianglesToProcess.length; i += 3) {
                 const v0 = trianglesToProcess[i], v1 = trianglesToProcess[i + 1], v2 = trianglesToProcess[i + 2];
-    
+
                 const base0 = v0 * 4, base1 = v1 * 4, base2 = v2 * 4;
                 const p0x = points[base0], p0z = points[base0 + 2];
                 const p1x = points[base1], p1z = points[base1 + 2];
                 const p2x = points[base2], p2z = points[base2 + 2];
-    
+
                 if (this.containsPoint(p0x, p0z) || this.containsPoint(p1x, p1z) || this.containsPoint(p2x, p2z)) {
                     const triangleIndex = indexMapping[i / 3];
                     globalTriangleIndexBuffer.push(triangleIndex);
                     this.triangleCount++;
                 }
             }
-    
+
             return;
         }
-    
+
         this.startTriangleIndex = globalTriangleIndexBuffer.length;
         this.triangleCount = 0;
-    
+
         const filteredTriangleIndices: number[] = [];
         const filteredTriangleIndexMap: number[] = [];
-        
+
         for (let i = 0; i < trianglesToProcess.length; i += 3) {
             const v0 = trianglesToProcess[i];
             const v1 = trianglesToProcess[i + 1];
             const v2 = trianglesToProcess[i + 2];
-    
+
             const base0 = v0 * 4, base1 = v1 * 4, base2 = v2 * 4;
             const p0x = points[base0], p0z = points[base0 + 2];
             const p1x = points[base1], p1z = points[base1 + 2];
             const p2x = points[base2], p2z = points[base2 + 2];
-    
+
             if (
                 this.containsPoint(p0x, p0z) ||
                 this.containsPoint(p1x, p1z) ||
@@ -208,12 +210,12 @@ class QuadTreeNode {
                 filteredTriangleIndexMap.push(triIndex);  // global index mapping
             }
         }
-    
+
         if (filteredTriangleIndices.length === 0) return;
-    
+
         const filteredTriangleArray = new Uint32Array(filteredTriangleIndices);
         const filteredTriangleMapArray = new Uint32Array(filteredTriangleIndexMap);
-    
+
         for (const child of this.children) {
             child.assignTriangles(filteredTriangleArray, points, globalTriangleIndexBuffer, filteredTriangleArray, filteredTriangleMapArray);
             this.triangleCount += child.triangleCount;
@@ -365,9 +367,10 @@ export class MortonSorter {
 
     constructor() { }
 
-    sort(
-        points: Float32Array,
-        bounds: Bounds): { sortedPoints: Float32Array, sortedIndices: Uint32Array } {
+    sort(points: Float32Array, bounds: Bounds): {
+        sortedPoints: Float32Array,
+        sortedIndices: Uint32Array
+    } {
 
         const pointSize = 4; // Each point has 4 components (x, y, z, w)
         const numPoints = points.length / pointSize;
@@ -378,7 +381,10 @@ export class MortonSorter {
 
         for (let i = 0; i < numPoints; i++) {
             const offset = i * pointSize;
-            mortonCodes[i] = this.computeMortonCodeXZ(points[offset], points[offset + 2], bounds);
+            mortonCodes[i] = this.computeMortonCodeXZ(
+                points[offset],
+                points[offset + 2],
+                bounds);
             indices[i] = i;
         }
 

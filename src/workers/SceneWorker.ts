@@ -11,6 +11,41 @@ import Delaunator from "delaunator";
 
 let shouldShutdown = false;
 
+const pointFormatReaders: Record<number, (dv: DataView) => {
+    position: [number, number, number],
+    intensity: number,
+    classification: number,
+    color?: [number, number, number]
+}> = {
+    0: (dv) => ({
+        position: [dv.getInt32(0, true), dv.getInt32(4, true), dv.getInt32(8, true)],
+        intensity: dv.getUint16(12, true),
+        classification: dv.getUint8(15)
+    }),
+
+    1: (dv) => ({
+        position: [dv.getInt32(0, true), dv.getInt32(4, true), dv.getInt32(8, true)],
+        intensity: dv.getUint16(12, true),
+        classification: dv.getUint8(15)
+    }),
+
+    2: (dv) => ({
+        position: [dv.getInt32(0, true), dv.getInt32(4, true), dv.getInt32(8, true)],
+        intensity: dv.getUint16(12, true),
+        classification: dv.getUint8(15),
+        color: [dv.getUint16(20, true), dv.getUint16(22, true), dv.getUint16(24, true)]
+    }),
+
+    3: (dv) => ({
+        position: [dv.getInt32(0, true), dv.getInt32(4, true), dv.getInt32(8, true)],
+        intensity: dv.getUint16(12, true),
+        classification: dv.getUint8(15),
+        color: [dv.getUint16(28, true), dv.getUint16(30, true), dv.getUint16(32, true)]
+    }),
+
+    // TODO: Add formats 5, 7, 8, 10
+};
+
 self.onmessage = async (e) => {
     const msg = e.data;
     try {
@@ -178,7 +213,7 @@ async function parseLASPoints(arrayBuffer: ArrayBuffer): Promise<{
     const {
         pointCount,
         pointDataRecordLength,
-        pointDataRecordFormat,
+        formatId,
         scale,
         offset,
         min,
@@ -196,34 +231,36 @@ async function parseLASPoints(arrayBuffer: ArrayBuffer): Promise<{
     const classifications = new Uint32Array(pointCount);
     const colors = new Float32Array(pointCount * 4);
 
+    const readPoint = pointFormatReaders[formatId];
+    if (!readPoint) {
+        throw new Error(`Unsupported point format: ${formatId}`);
+      }
+
     for (let i = 0; i < pointCount; ++i) {
         laszip.getPoint(dataPtr);
 
         const raw = LazPerf.HEAPU8.subarray(dataPtr, dataPtr + pointDataRecordLength);
         const view = new DataView(raw.buffer, raw.byteOffset, raw.byteLength);
+        const point = readPoint(view);
 
-        const ix = view.getInt32(0, true);
-        const iy = view.getInt32(4, true);
-        const iz = view.getInt32(8, true);
-
-        const x = ix * scale[0] + offset[0];
-        const y = iy * scale[1] + offset[1];
-        const z = iz * scale[2] + offset[2];
+        const [ix, iy, iz] = point.position;
+        const x = ix * scale[0] + offset[0] - min[0];
+        const y = iy * scale[1] + offset[1] - min[1];
+        const z = iz * scale[2] + offset[2] - min[2];
         const w = 1.0;
 
-        positions.set([x, z, y, w], i * 4); // Swap y and z
+        positions.set([x, z, y, w], i * 4); // Swapping Y and Z
 
-        const classification = raw[15];
-        classifications[i] = classification;
+        classifications[i] = point.classification;
 
-        // Optional color (only for formats with RGB: 2, 3, 5, 7, 8, 10)
-        if (pointDataRecordFormat === 2 || pointDataRecordFormat === 3 || pointDataRecordFormat >= 5) {
-            const r = view.getUint16(20, true) / 65535;
-            const g = view.getUint16(22, true) / 65535;
-            const b = view.getUint16(24, true) / 65535;
+        if (point.color) {
+            const [rRaw, gRaw, bRaw] = point.color;
+            const r = rRaw / 65535;
+            const g = gRaw / 65535;
+            const b = bRaw / 65535;
             const a = 1.0;
             colors.set([r, g, b, a], i * 4);
-        }
+          }
     }
 
     // Clean up
@@ -236,44 +273,6 @@ async function parseLASPoints(arrayBuffer: ArrayBuffer): Promise<{
         colors,
         classification: classifications
     };
-    // for (let i = 0; i < totalPoints; i++) {
-    //     const point = decoder.getPoint(i);
-
-    //     // Position
-    //     const position = vec3.create();
-    //     vec3.multiply(position, point.position, header.scale);
-    //     vec3.add(position, position, header.offset);
-    //     position[0] -= header.mins[0];
-    //     position[1] -= header.mins[1];
-    //     position[2] -= header.mins[2];
-
-    //     points[extractedCount * 4] = position[0];
-    //     points[extractedCount * 4 + 1] = position[2]; // swap y/z
-    //     points[extractedCount * 4 + 2] = position[1];
-    //     points[extractedCount * 4 + 3] = 1.0;
-
-    //     if (point.color) {
-    //         const color = vec3.create();
-    //         vec3.scale(color, point.color, 1 / 255);
-    //         colors[extractedCount * 4] = color[0];
-    //         colors[extractedCount * 4 + 1] = color[1];
-    //         colors[extractedCount * 4 + 2] = color[2];
-    //         colors[extractedCount * 4 + 3] = 1.0;
-    //     } else {
-    //         colors.set([255, 255, 255, 1], extractedCount * 4);
-    //     }
-
-    //     if (point.classification) {
-    //         classification[extractedCount] = point.classification;
-    //     } else {
-    //         classification[extractedCount] = 0;
-    //     }
-
-    //     extractedCount++;
-    // }
-
-    // await lasFile.close();
-    // return { points, colors, classification };
 }
 
 async function storeInCache(
@@ -421,6 +420,12 @@ function parseHeader(arrayBuffer: ArrayBuffer) {
     const pointDataRecordLength = view.getUint16(105, true);
     const pointDataRecordFormat = view.getUint8(104);
 
+    let bit_7 = (pointDataRecordFormat & 0x80) >> 7;
+    let bit_6 = (pointDataRecordFormat & 0x40) >> 6;
+    const isCompressed = (bit_7 === 1 || bit_6 === 1);
+
+    const formatId = pointDataRecordFormat & 0x3f;
+
     const scale = [
         view.getFloat64(131, true),
         view.getFloat64(139, true),
@@ -445,7 +450,8 @@ function parseHeader(arrayBuffer: ArrayBuffer) {
     return {
         pointCount,
         pointDataRecordLength,
-        pointDataRecordFormat,
+        formatId,
+        isCompressed,
         scale,
         offset,
         min,

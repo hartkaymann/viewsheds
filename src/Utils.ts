@@ -67,7 +67,7 @@ export class Utils {
         rayDataTable.displayRayData();
     }
 
-    static showToast(message: string, type: 'error' | 'warn' = 'error') {
+    static showToast(message: string, type: 'error' | 'warn' | 'info'= 'info') {
         const toast = document.createElement('div');
         toast.className = `toast ${type}`;
         toast.textContent = message;

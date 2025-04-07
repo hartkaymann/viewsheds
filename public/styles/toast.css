@@ -25,9 +25,10 @@
 
 .toast.error { border-left: 4px solid #ff4c4c; }
 .toast.warn  { border-left: 4px solid #ffaa00; }
+.toast.info  { border-left: 4px solid #036afe; }
 
 @keyframes fadeOut {
   0%   { opacity: 0.95; }
-  80%  { opacity: 0.95; }
-  100% { opacity: 0; transform: translateY(10px); }
+  80%   { opacity: 0.95; }
+  100% { opacity: 0;}
 }

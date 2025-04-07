@@ -44,7 +44,7 @@ async function main() {
             fallback.style.display = "block";
             canvas.style.display = "none";
         }
-        
+
         return; // TODO: Show fallback UI
     }
 
@@ -171,7 +171,9 @@ async function main() {
         const request = indexedDB.deleteDatabase(dbName);
 
         request.onsuccess = () => {
-            console.log(`IndexedDB "${dbName}" deleted successfully.`);
+            let msg = `IndexedDB "${dbName}" deleted successfully.`;
+            console.log(msg);
+            Utils.showToast(msg, "info");
         };
 
         request.onerror = () => {
@@ -181,6 +183,7 @@ async function main() {
         request.onblocked = () => {
             console.warn(`Delete blocked. Please close all other tabs using this database.`);
         };
+
     });
 
     const response = await fetch(`${import.meta.env.BASE_URL}model/files.json`);
