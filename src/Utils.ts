@@ -18,11 +18,13 @@ export class Utils {
         const srcDistanceBuffer = bufferManager.get("debug_distance");
         const srcIndexBuffer = bufferManager.get("ray_nodes");
         const dstDistanceBuffer = device.createBuffer({
+            label: "ray_distance_copy",
             size: bufferSize,
             usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
         });
 
         const dstIndexBuffer = device.createBuffer({
+            label: "ray_nodes_copy",
             size: bufferSize,
             usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
         });

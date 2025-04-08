@@ -88,11 +88,10 @@ async function main() {
 
     const renderer = new Renderer(canvas, scene, device);
     const uiController = new UIController(renderer);
-    
+
     renderer.ui = uiController;
     await renderer.init();
     uiController.init();
-    
     renderer.startRendering();
 
     let sceneLoader = setupSceneLoader();
@@ -117,10 +116,7 @@ async function main() {
             onTreeBuilt: (treeData) => {
                 scene.tree = QuadTree.reconstruct(treeData, treeDepth);
                 renderer.setNodeData().then(() => {
-                    const runNodesButton = document.getElementById("runNodes") as HTMLButtonElement;
-                    if (runNodesButton) {
-                        runNodesButton.disabled = false;
-                    };
+                    uiController.setRunNodesButtonDisabled(false);
                 });;
             },
 
@@ -132,15 +128,8 @@ async function main() {
 
                 renderer.setNodeData(false);
                 renderer.setMeshData().then(() => {
-                    const runPointsButton = document.getElementById("runPoints") as HTMLButtonElement;
-                    if (runPointsButton) {
-                        runPointsButton.disabled = false;
-                    };
-
-                    const runPanoramaButton = document.getElementById("runPanorama") as HTMLButtonElement;
-                    if (runPanoramaButton) {
-                        runPanoramaButton.disabled = false;
-                    };
+                    uiController.setRunPointsButtonDisabled(false);
+                    uiController.setRunPanoramaButtonDisabled(false);
                 });
 
                 console.log("Triangulation complete");

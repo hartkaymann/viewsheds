@@ -64,11 +64,13 @@ export class Profiler {
         });
 
         const resolveBuffer = this.device.createBuffer({
+            label: `${label}-resolve`,
             size: 16,
             usage: GPUBufferUsage.QUERY_RESOLVE | GPUBufferUsage.COPY_SRC,
         });
 
         const resultBuffer = this.device.createBuffer({
+            label: `${label}-result`,
             size: 16,
             usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST,
         });
@@ -157,7 +159,7 @@ export class Profiler {
             toggleEl.onclick = () => {
                 isExpanded = !isExpanded;
                 listEl.style.display = isExpanded ? "block" : "none";
-                toggleEl.innerHTML  = isExpanded ? "&#x25BC; Hide Buffers" : "&#x25B6; Show Buffers";
+                toggleEl.innerHTML = isExpanded ? "&#x25BC; Hide Buffers" : "&#x25B6; Show Buffers";
             };
             toggleEl.dataset.initialized = "true";
         }
@@ -174,7 +176,7 @@ export class Profiler {
                 </tr>`;
             })
             .join("");
-    
+
         tableBody.innerHTML = rows;
     }
 } 

@@ -61,6 +61,7 @@ export class Renderer {
     renderMesh: boolean = false;
     renderRays: boolean = true;
     renderNodes: boolean = true;
+    runningPanorama: boolean = false;
 
     // Time
     private prevTime = 0;
@@ -604,7 +605,8 @@ export class Renderer {
         this.updateRaySamples();
         this.updateRayOrigin();
         this.updateThetaPhi();
-        this.runComputePass();
+        this.runGenerateRays();
+        this.runNodeCollision();
         this.updateRenderMode();
     }
 
@@ -894,79 +896,106 @@ export class Renderer {
     render = () => {
         if (!this.running) return;
 
-        const currTime = performance.now() * 0.001;
+        const currTime = performance.now();
         const deltaTime = currTime - this.prevTime;
-        this.prevTime = currTime;
-        this.timeAccumulator += deltaTime;
 
-        while (this.timeAccumulator >= this.timeStep) {
-            this.timeAccumulator -= this.timeStep;
+        // Cap to 60 fps
+        if (deltaTime >= 1000 / 60) {
+            this.prevTime = currTime;
+
+            if (!this.running) return;
+
+            this.timeAccumulator += deltaTime;
+
+            while (this.timeAccumulator >= this.timeStep) {
+                this.timeAccumulator -= this.timeStep;
+            }
+
+            this.calculateFPS(currTime);
+            this.runRenderPass();
         }
-
-        this.calculateFPS(currTime);
-        this.runRenderPass();
 
         this.animationFrameId = requestAnimationFrame(this.render);
     };
 
-    async runComputePass(sort: boolean = true) {
+    async runNodeCollision(sort: boolean = true, useProfiler: boolean = true) {
         this.bufferManager.clear("ray_nodes");
         this.bufferManager.clear("debug_distance");
         this.bufferManager.clear("node_visibility");
 
         const encoderFind: GPUCommandEncoder = this.device.createCommandEncoder();
-        const passFind = this.profiler.beginComputePass("nodes-find", encoderFind);
+        const passFind = useProfiler
+            ? this.profiler.beginComputePass("nodes-find", encoderFind)
+            : encoderFind.beginComputePass();
+
         this.computeFindLeaves(passFind);
         passFind.end();
-        this.profiler.endComputePass("nodes-find", encoderFind);
+
+        if (useProfiler) {
+            await this.profiler.endComputePass("nodes-find", encoderFind);
+        } else {
+            this.device.queue.submit([encoderFind.finish()]);
+        }
 
         if (sort) {
             const encoderSort: GPUCommandEncoder = this.device.createCommandEncoder();
-            const passSort = this.profiler.beginComputePass("nodes-sort", encoderSort);
+            const passSort = useProfiler
+                ? this.profiler.beginComputePass("nodes-sort", encoderSort)
+                : encoderSort.beginComputePass(); this.computebitonicSort(passSort);
+
             this.computebitonicSort(passSort);
             passSort.end();
-            this.profiler.endComputePass("nodes-sort", encoderSort);
+
+            if (useProfiler) {
+                await this.profiler.endComputePass("nodes-sort", encoderSort);
+            } else {
+                this.device.queue.submit([encoderSort.finish()]);
+            }
         }
     }
 
-    async runGenerateRays() {
+    async runGenerateRays(useProfiler: boolean = true) {
         this.bufferManager.clear("rays");
 
         const encoder: GPUCommandEncoder = this.device.createCommandEncoder();
-        const pass = this.profiler.beginComputePass("rays-generate", encoder);
+        const pass = useProfiler
+            ? this.profiler.beginComputePass("rays-generate", encoder)
+            : encoder.beginComputePass();
 
         const gridLayout = this.workgroups.getLayout("2d-grid-per-ray");
-        const dispatchX = gridLayout.dispatchSize[0];
-        const dispatchY = gridLayout.dispatchSize[1];
-        const dispatchZ = gridLayout.dispatchSize[2];
-
         pass.setPipeline(this.pipelineManager.get<GPUComputePipeline>("rays-generate"));
         pass.setBindGroup(0, this.bindGroupsManager.getGroup("compute-uniforms"));
         pass.setBindGroup(1, this.bindGroupsManager.getGroup("rays"));
-        pass.dispatchWorkgroups(dispatchX, dispatchY, dispatchZ);
+        pass.dispatchWorkgroups(...gridLayout.dispatchSize);
         pass.end();
 
-        this.profiler.endComputePass("rays-generate", encoder);
+        if (useProfiler) {
+            await this.profiler.endComputePass("rays-generate", encoder);
+        } else {
+            this.device.queue.submit([encoder.finish()]);
+        }
     }
 
-    async runCollision() {
+    async runPointCollision(useProfiler: boolean = true) {
         const encoder: GPUCommandEncoder = this.device.createCommandEncoder();
-        const pass = this.profiler.beginComputePass("collision", encoder);
+        const pass = useProfiler
+            ? this.profiler.beginComputePass("collision", encoder)
+            : encoder.beginComputePass();
 
         const gridLayout = this.workgroups.getLayout("2d-grid-per-ray");
-        const dispatchX = gridLayout.dispatchSize[0];
-        const dispatchY = gridLayout.dispatchSize[1];
-        const dispatchZ = gridLayout.dispatchSize[2];
-
         pass.setPipeline(this.pipelineManager.get<GPUComputePipeline>("collision"));
         pass.setBindGroup(0, this.bindGroupsManager.getGroup("compute-uniforms"));
         pass.setBindGroup(1, this.bindGroupsManager.getGroup("rays"));
         pass.setBindGroup(2, this.bindGroupsManager.getGroup("sort"));
         pass.setBindGroup(3, this.bindGroupsManager.getGroup("collision"));
-        pass.dispatchWorkgroups(dispatchX, dispatchY, dispatchZ);
+        pass.dispatchWorkgroups(...gridLayout.dispatchSize);
         pass.end();
 
-        this.profiler.endComputePass("collision", encoder);
+        if (useProfiler) {
+            await this.profiler.endComputePass("collision", encoder);
+        } else {
+            this.device.queue.submit([encoder.finish()]);
+        }
     }
 
     computeFindLeaves(pass: GPUComputePassEncoder) {
@@ -994,15 +1023,25 @@ export class Renderer {
     }
 
     async runPanoramaPass() {
-        for (let theta = 0; theta < 2 * Math.PI; theta += Math.PI / 180) { 
+        const startPhi = Math.PI / 3;
+        const endPhi = 2 * Math.PI / 3;
+        const step = Math.PI / 180; // 1 degree
+
+        for (let theta = 0; theta < 2 * Math.PI; theta += step) {
+            if (!this.runningPanorama) {
+                Utils.showToast("Panorama stopped.", "info");
+                break;
+            }
+
             let startTheta = theta;
-            let endTheta = theta + Math.PI / 180; // 1 degree
-            this.device.queue.writeBuffer(
-                this.bufferManager.get("comp_uniforms"),
-                12,
-                new Float32Array([startTheta, endTheta])
-            );
-            await this.runGenerateRays();
+            let endTheta = theta + step;
+
+            this.updateThetaPhi([startTheta, endTheta], [startPhi, endPhi]);
+            await this.runGenerateRays(false);
+            await this.runNodeCollision(true, false);
+            await this.runPointCollision(false);
+
+            await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
         }
     }
 
@@ -1091,19 +1130,16 @@ export class Renderer {
             this.updateRayWorkgroups();
             this.updateRayPipelines();
         }
-        this.runGenerateRays();
     }
 
     updateThetaPhi(theta: [number, number] = [0, 0], phi: [number, number] = [0, 0]) {
         this.device.queue.writeBuffer(
-            this.bufferManager.get("comp_uniforms"), 12, 
+            this.bufferManager.get("comp_uniforms"), 12,
             new Float32Array([theta[0], theta[1], phi[0], phi[1]]));
-        this.runGenerateRays();
     }
 
     updateRayOrigin(origin: [number, number, number] = [0, 0, 0]) {
         this.device.queue.writeBuffer(this.bufferManager.get("comp_uniforms"), 0, new Float32Array(origin));
-        this.runGenerateRays();
     }
 
     updateRenderMode(mode: number = 0) {
@@ -1157,16 +1193,19 @@ export class Renderer {
     calculateFPS(currTime: number) {
         this.frameCount++;
 
-        // Calculate FPS every second
         const elapsedTime = currTime - this.fpsLastTime;
-        if (elapsedTime > 1) {
-            this.fps = this.frameCount / elapsedTime;
+
+        // Calculate FPS every second
+        if (elapsedTime > 1000) {
+            this.fps = this.frameCount / (elapsedTime / 1000);
             this.frameCount = 0;
             this.fpsLastTime = currTime;
         }
 
-        const fpsLabel: HTMLElement = <HTMLElement>document.getElementById("fps");
-        fpsLabel.innerText = (this.fps).toFixed(2);
+        const fpsLabel = document.getElementById("fps");
+        if (fpsLabel) {
+            fpsLabel.innerText = this.fps.toFixed(2);
+        }
     }
 
     clearVisibility() {
@@ -1182,7 +1221,9 @@ export class Renderer {
             nodes: false,
         }
 
-       this.ui?.updateButtonStates(false);
+        this.ui?.setRunNodesButtonDisabled(true);
+        this.ui?.setRunPointsButtonDisabled(true);
+        this.ui?.setRunPanoramaButtonDisabled(true);
 
         this.stopRendering();
         this.init();

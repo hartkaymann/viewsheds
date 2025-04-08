@@ -52,9 +52,9 @@
 
 
           <div class="input-group" id="thetaPhiInputs">
-            <label>Start Theta: <input type="number" id="startTheta" value="-0.095" step="0.087" min="-3.14"
+            <label>Start Theta: <input type="number" id="startTheta" value="1.471" step="0.087" min="-3.14"
                 max="3.14"></label>
-            <label>End Theta: <input type="number" id="endTheta" value="1.645" step="0.087" min="-3.14"
+            <label>End Theta: <input type="number" id="endTheta" value="3.124" step="0.087" min="-3.14"
                 max="3.14"></label>
             <label>Start Phi: <input type="number" id="startPhi" value="1.558" step="0.087" min="-3.14"
                 max="3.14"></label>
@@ -71,9 +71,14 @@
             <button id="runPanorama" disabled>Run Panorama</button>
           </div>
 
-
           <div class="input-group" id="renderModeInputs">
-            <label>Render Mode: <input type="number" id="renderMode" value="0" min="0" max="3"></label>
+            <label for="renderMode">Render Mode:</label>
+            <select id="renderMode">
+              <option value="0">Color</option>
+              <option value="1">Visibility</option>
+              <option value="2">Node Assignment</option>
+              <option value="3">Classification</option>
+            </select>
           </div>
 
 
