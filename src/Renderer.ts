@@ -599,6 +599,7 @@ export class Renderer {
         document.getElementById("runNodes")?.addEventListener("click", this.runComputePass.bind(this));
         document.getElementById("runPoints")?.addEventListener("click", this.runCollision.bind(this));
         document.getElementById("renderMode")?.addEventListener("change", this.updateRenderMode.bind(this));
+        document.getElementById("clearPoints")?.addEventListener("change", this.clearVisibility.bind(this));
 
         this.updateRaySamples();
         this.updateRayOrigin();
@@ -957,8 +958,6 @@ export class Renderer {
     }
 
     async runCollision() {
-        this.bufferManager.clear("point_visibility");
-
         const encoder: GPUCommandEncoder = this.device.createCommandEncoder();
         const pass = this.profiler.beginComputePass("collision", encoder);
 
@@ -1212,6 +1211,10 @@ export class Renderer {
         fpsLabel.innerText = (this.fps).toFixed(2);
     }
 
+    clearVisibility() {
+        this.bufferManager.clear("point_visibility");
+    }
+
     reset() {
         this.canRender = {
             gizmo: true,
@@ -1230,6 +1233,11 @@ export class Renderer {
         if (runPointsButton) {
             runPointsButton.disabled = true;
         }
+
+        const runPanoramaButton = document.getElementById("runPanorama") as HTMLButtonElement;
+        if (runPanoramaButton) {
+            runPanoramaButton.disabled = true;
+        };
 
 
         this.stopRendering();

@@ -130,6 +130,11 @@ async function main() {
                     if (runPointsButton) {
                         runPointsButton.disabled = false;
                     };
+
+                    const runPanoramaButton = document.getElementById("runPanorama") as HTMLButtonElement;
+                    if (runPanoramaButton) {
+                        runPanoramaButton.disabled = false;
+                    };
                 });
 
                 console.log("Triangulation complete");
