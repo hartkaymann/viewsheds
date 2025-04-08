@@ -8,6 +8,7 @@ import { QuadTree } from "./Optimization";
 
 import SceneWorker from './workers/SceneWorker.ts?worker';
 import { Utils } from "./Utils";
+import { UIController } from "./ui/UIController ";
 
 declare global {
     interface Window {
@@ -83,10 +84,15 @@ async function main() {
 
 
     const scene: Scene = new Scene(camera);
-    const renderer = new Renderer(canvas, scene, device);
     const inputHandler = new InputHandler(canvas, camera, scene);
 
+    const renderer = new Renderer(canvas, scene, device);
+    const uiController = new UIController(renderer);
+    
+    renderer.ui = uiController;
     await renderer.init();
+    uiController.init();
+    
     renderer.startRendering();
 
     let sceneLoader = setupSceneLoader();

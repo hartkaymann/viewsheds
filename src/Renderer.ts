@@ -18,10 +18,12 @@ import { PipelineManager } from "./PipelineManager"
 import { WorkgroupManager } from "./WorkgroupManager"
 import { Utils } from "./Utils"
 import { Profiler } from "./Profiler"
+import { UIController } from "./ui/UIController "
 
 
 export class Renderer {
     canvas: HTMLCanvasElement
+    ui: UIController | null = null;
 
     // Device/Context objects
     device: GPUDevice;
@@ -46,6 +48,7 @@ export class Renderer {
     // Scene to render
     scene: Scene
 
+    // Settings
     private canRender = {
         gizmo: true,
         rays: true,
@@ -53,6 +56,11 @@ export class Renderer {
         nodes: false,
         mesh: false,
     };
+
+    renderPoints: boolean = true;
+    renderMesh: boolean = false;
+    renderRays: boolean = true;
+    renderNodes: boolean = true;
 
     // Time
     private prevTime = 0;
@@ -593,14 +601,6 @@ export class Renderer {
             },
         }
 
-        document.getElementById("raySampleInputs")?.addEventListener("change", this.updateRaySamples.bind(this));
-        document.getElementById("originInputs")?.addEventListener("change", this.updateRayOrigin.bind(this));
-        document.getElementById("thetaPhiInputs")?.addEventListener("change", this.updateThetaPhi.bind(this));
-        document.getElementById("runNodes")?.addEventListener("click", this.runComputePass.bind(this));
-        document.getElementById("runPoints")?.addEventListener("click", this.runCollision.bind(this));
-        document.getElementById("renderMode")?.addEventListener("change", this.updateRenderMode.bind(this));
-        document.getElementById("clearPoints")?.addEventListener("change", this.clearVisibility.bind(this));
-
         this.updateRaySamples();
         this.updateRayOrigin();
         this.updateThetaPhi();
@@ -909,7 +909,7 @@ export class Renderer {
         this.animationFrameId = requestAnimationFrame(this.render);
     };
 
-    async runComputePass() {
+    async runComputePass(sort: boolean = true) {
         this.bufferManager.clear("ray_nodes");
         this.bufferManager.clear("debug_distance");
         this.bufferManager.clear("node_visibility");
@@ -920,19 +920,13 @@ export class Renderer {
         passFind.end();
         this.profiler.endComputePass("nodes-find", encoderFind);
 
-
-
-        const sortNodesCheckbox = <HTMLInputElement>document.getElementById("sortNodes");
-        const sortNodes = sortNodesCheckbox.checked;
-        if (sortNodes) {
+        if (sort) {
             const encoderSort: GPUCommandEncoder = this.device.createCommandEncoder();
             const passSort = this.profiler.beginComputePass("nodes-sort", encoderSort);
             this.computebitonicSort(passSort);
             passSort.end();
             this.profiler.endComputePass("nodes-sort", encoderSort);
         }
-
-        Utils.copyAndDisplayRayDebugData(this.device, this.bufferManager, this.raySamples, this.scene.tree.depth);
     }
 
     async runGenerateRays() {
@@ -953,8 +947,6 @@ export class Renderer {
         pass.end();
 
         this.profiler.endComputePass("rays-generate", encoder);
-
-        await this.device.queue.onSubmittedWorkDone();
     }
 
     async runCollision() {
@@ -1001,6 +993,19 @@ export class Renderer {
         pass.dispatchWorkgroups(totalWorkgroups);
     }
 
+    async runPanoramaPass() {
+        for (let theta = 0; theta < 2 * Math.PI; theta += Math.PI / 180) { 
+            let startTheta = theta;
+            let endTheta = theta + Math.PI / 180; // 1 degree
+            this.device.queue.writeBuffer(
+                this.bufferManager.get("comp_uniforms"),
+                12,
+                new Float32Array([startTheta, endTheta])
+            );
+            await this.runGenerateRays();
+        }
+    }
+
     runRenderPass() {
         this.device.queue.writeBuffer(this.bufferManager.get("vs_uniforms"), 64, new Float32Array(this.scene.camera.viewMatrix));
         this.device.queue.writeBuffer(this.bufferManager.get("vs_uniforms"), 128, new Float32Array(this.scene.camera.projectionMatrix));
@@ -1011,11 +1016,7 @@ export class Renderer {
         const commandEncoder: GPUCommandEncoder = this.device.createCommandEncoder();
         const renderPass: GPURenderPassEncoder = commandEncoder.beginRenderPass(this.renderPassDescriptor);
 
-        const renderPointsCheckbox = <HTMLInputElement>document.getElementById("renderPoints");
-        const renderPoints = renderPointsCheckbox.checked;
-        const renderMeshCheckbox = <HTMLInputElement>document.getElementById("renderMesh");
-        const renderMesh = renderMeshCheckbox.checked;
-        if (this.canRender.points && renderPoints) {
+        if (this.canRender.points && this.renderPoints) {
             // Render points
             renderPass.setPipeline(this.pipelineManager.get<GPURenderPipeline>("render-points"));
             renderPass.setBindGroup(0, this.bindGroupsManager.getGroup("render"));
@@ -1025,7 +1026,7 @@ export class Renderer {
             renderPass.setVertexBuffer(2, this.bufferManager.get("classification"));
             const pointsToDraw = this.bufferManager.get("points").size / 16;
             renderPass.draw(pointsToDraw, 1);
-        } else if (this.canRender.mesh && renderMesh) {
+        } else if (this.canRender.mesh && this.renderMesh) {
             // Render wireframe
             renderPass.setPipeline(this.pipelineManager.get<GPURenderPipeline>("render-wireframe"));
             renderPass.setBindGroup(0, this.bindGroupsManager.getGroup("render"));
@@ -1034,18 +1035,14 @@ export class Renderer {
         }
 
         // Render rays
-        const renderRaysCheckbox = <HTMLInputElement>document.getElementById("renderRays");
-        const renderRays = renderRaysCheckbox.checked;
-        if (this.canRender.rays && renderRays) {
+        if (this.canRender.rays && this.renderRays) {
             renderPass.setPipeline(this.pipelineManager.get<GPURenderPipeline>("render-rays"));
             renderPass.setBindGroup(0, this.bindGroupsManager.getGroup("render"));
             renderPass.draw(2 * this.raySamples[0] * this.raySamples[1], 1);
         }
 
         // Render nodes
-        const showNodesCheckbox = <HTMLInputElement>document.getElementById("showNodes");
-        const showNodes = showNodesCheckbox.checked;
-        if (this.canRender.nodes && showNodes) {
+        if (this.canRender.nodes && this.renderNodes) {
             renderPass.setPipeline(this.pipelineManager.get<GPURenderPipeline>("render-nodes"));
             renderPass.setBindGroup(0, this.bindGroupsManager.getGroup("nodes"));
             renderPass.setVertexBuffer(0, this.bufferManager.get("points"));
@@ -1080,10 +1077,10 @@ export class Renderer {
         this.device.queue.submit([commandEncoder.finish()]);
     }
 
-    updateRaySamples() {
+    updateRaySamples(samples: [number, number] = [1, 1]) {
         const [oldX, oldY] = this.raySamples;
-        this.raySamples[0] = parseInt((<HTMLInputElement>document.getElementById("samplesX")).value);
-        this.raySamples[1] = parseInt((<HTMLInputElement>document.getElementById("samplesY")).value);
+        this.raySamples[0] = samples[0];
+        this.raySamples[1] = samples[1];
 
         this.device.queue.writeBuffer(this.bufferManager.get("comp_uniforms"), 32, new Uint32Array([
             this.raySamples[0], this.raySamples[1],
@@ -1097,26 +1094,20 @@ export class Renderer {
         this.runGenerateRays();
     }
 
-    updateThetaPhi() {
-        const startTheta = parseFloat((<HTMLInputElement>document.getElementById("startTheta")).value);
-        const endTheta = parseFloat((<HTMLInputElement>document.getElementById("endTheta")).value);
-        const startPhi = parseFloat((<HTMLInputElement>document.getElementById("startPhi")).value);
-        const endPhi = parseFloat((<HTMLInputElement>document.getElementById("endPhi")).value);
-        this.device.queue.writeBuffer(this.bufferManager.get("comp_uniforms"), 12, new Float32Array([startTheta, endTheta, startPhi, endPhi]));
+    updateThetaPhi(theta: [number, number] = [0, 0], phi: [number, number] = [0, 0]) {
+        this.device.queue.writeBuffer(
+            this.bufferManager.get("comp_uniforms"), 12, 
+            new Float32Array([theta[0], theta[1], phi[0], phi[1]]));
         this.runGenerateRays();
     }
 
-    updateRayOrigin() {
-        const ox = parseFloat((<HTMLInputElement>document.getElementById("originX")).value);
-        const oy = parseFloat((<HTMLInputElement>document.getElementById("originY")).value);
-        const oz = parseFloat((<HTMLInputElement>document.getElementById("originZ")).value);
-        this.device.queue.writeBuffer(this.bufferManager.get("comp_uniforms"), 0, new Float32Array([ox, oy, oz]));
+    updateRayOrigin(origin: [number, number, number] = [0, 0, 0]) {
+        this.device.queue.writeBuffer(this.bufferManager.get("comp_uniforms"), 0, new Float32Array(origin));
         this.runGenerateRays();
     }
 
-    updateRenderMode() {
-        const renderMode = parseInt((<HTMLInputElement>document.getElementById("renderMode")).value);
-        this.bufferManager.write("render_mode", new Uint32Array([renderMode]));
+    updateRenderMode(mode: number = 0) {
+        this.bufferManager.write("render_mode", new Uint32Array([mode]));
     }
 
     resizeRayRelatedBuffers() {
@@ -1191,21 +1182,7 @@ export class Renderer {
             nodes: false,
         }
 
-        const runNodesButton = document.getElementById("runNodes") as HTMLButtonElement;
-        if (runNodesButton) {
-            runNodesButton.disabled = true;
-        }
-
-        const runPointsButton = document.getElementById("runPoints") as HTMLButtonElement;
-        if (runPointsButton) {
-            runPointsButton.disabled = true;
-        }
-
-        const runPanoramaButton = document.getElementById("runPanorama") as HTMLButtonElement;
-        if (runPanoramaButton) {
-            runPanoramaButton.disabled = true;
-        };
-
+       this.ui?.updateButtonStates(false);
 
         this.stopRendering();
         this.init();
