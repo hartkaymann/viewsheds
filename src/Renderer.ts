@@ -974,40 +974,7 @@ export class Renderer {
         pass.dispatchWorkgroups(dispatchX, dispatchY, dispatchZ);
         pass.end();
 
-        const pointVisibilityBuffer = this.bufferManager.get("point_visibility");
-        const visibilityByteLength = pointVisibilityBuffer.size;
-        const readBuffer = this.device.createBuffer({
-            size: visibilityByteLength,
-            usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
-        });
-
-        encoder.copyBufferToBuffer(
-            pointVisibilityBuffer, 0,
-            readBuffer, 0,
-            visibilityByteLength
-        );
-
         this.profiler.endComputePass("collision", encoder);
-
-        await this.device.queue.onSubmittedWorkDone();
-        await readBuffer.mapAsync(GPUMapMode.READ);
-        const arrayBuffer = readBuffer.getMappedRange();
-        const visibilityData = new Uint32Array(arrayBuffer.slice(0));
-
-        const visiblePoints: number[] = [];
-
-        for (let wordIndex = 0; wordIndex < visibilityData.length; wordIndex++) {
-            const word = visibilityData[wordIndex];
-            if (word === 0) continue; // skip empty words
-
-            for (let bit = 0; bit < 32; bit++) {
-                if ((word & (1 << bit)) !== 0) {
-                    visiblePoints.push(wordIndex * 32 + bit);
-                }
-            }
-        }
-
-        readBuffer.unmap();
     }
 
     computeFindLeaves(pass: GPUComputePassEncoder) {
