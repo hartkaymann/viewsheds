@@ -9,7 +9,7 @@ export class UIController {
         this.renderer = renderer;
     }
 
-    init() {
+    async init() {
         document.getElementById("raySampleInputs")?.addEventListener("change", this.handleUpdateRaySamples.bind(this));
         document.getElementById("originInputs")?.addEventListener("change", this.handleUpdateRayOrigin.bind(this));
         document.getElementById("thetaPhiInputs")?.addEventListener("change", this.handleUpdateThetaPhi.bind(this));
@@ -23,9 +23,9 @@ export class UIController {
         document.getElementById("renderRays")?.addEventListener("change", this.handleRenderRaysChanged.bind(this));
         document.getElementById("renderNodes")?.addEventListener("change", this.handleRenderNodesChanged.bind(this));
 
-        this.handleUpdateRaySamples();
-        this.handleUpdateRayOrigin();
-        this.handleUpdateThetaPhi();
+        await this.handleUpdateRaySamples();
+        await this.handleUpdateRayOrigin();
+        await this.handleUpdateThetaPhi();
         this.handleUpdateRenderMode();
         this.handleRenderPointsChanged();
         this.handleRenderMeshChanged();
@@ -33,28 +33,28 @@ export class UIController {
         this.handleRenderNodesChanged();
     }
 
-    handleUpdateRaySamples() {
+    async handleUpdateRaySamples() {
         const samplesX = parseInt((<HTMLInputElement>document.getElementById("samplesX")).value);
         const samplesY = parseInt((<HTMLInputElement>document.getElementById("samplesY")).value);
         this.renderer.updateRaySamples([samplesX, samplesY]);
-        this.renderer.runGenerateRays();
+        await this.renderer.runGenerateRays();
     }
 
-    handleUpdateRayOrigin() {
+    async handleUpdateRayOrigin() {
         const ox = parseFloat((<HTMLInputElement>document.getElementById("originX")).value);
         const oy = parseFloat((<HTMLInputElement>document.getElementById("originY")).value);
         const oz = parseFloat((<HTMLInputElement>document.getElementById("originZ")).value);
         this.renderer.updateRayOrigin([ox, oy, oz]);
-        this.renderer.runGenerateRays();
+        await this.renderer.runGenerateRays();
     }
 
-    handleUpdateThetaPhi() {
+    async handleUpdateThetaPhi() {
         const startTheta = parseFloat((<HTMLInputElement>document.getElementById("startTheta")).value);
         const endTheta = parseFloat((<HTMLInputElement>document.getElementById("endTheta")).value);
         const startPhi = parseFloat((<HTMLInputElement>document.getElementById("startPhi")).value);
         const endPhi = parseFloat((<HTMLInputElement>document.getElementById("endPhi")).value);
         this.renderer.updateThetaPhi([startTheta, endTheta], [startPhi, endPhi]);
-        this.renderer.runGenerateRays();
+        await this.renderer.runGenerateRays();
     }
 
     handleUpdateRenderMode() {

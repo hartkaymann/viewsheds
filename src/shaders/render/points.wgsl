@@ -46,7 +46,7 @@ fn main(
  
   switch renderMode {
     case 0u: {  // Vertex color mode
-      output.color = vec4f(color.xyz, 1.0);
+      output.color = vec4f(color.rgb, 1.0);
     }
 
     case 1u: {  // Visibility mode
@@ -64,7 +64,6 @@ fn main(
       output.color = vec4f(randomColor(classIndex), 1.0);
     }
 
-
     default: {
       output.color = vec4f(1.0, 1.0, 1.0, 1.0);
     }
@@ -73,7 +72,17 @@ fn main(
   return output;
 }
 
+struct FragmentOutput {
+    @location(0) accumColor: vec4f,
+    @location(1) revealage: vec4f,
+    }
+
 @fragment
-fn main_fs(in: VertexOutput) -> @location(0) vec4<f32> {
-    return in.color;
+fn main_fs(in: VertexOutput) -> FragmentOutput {
+    var output: FragmentOutput;
+
+    output.accumColor = in.color * in.color.a;
+    output.revealage = vec4f(1.0 - in.color.a);
+
+    return output;
 }

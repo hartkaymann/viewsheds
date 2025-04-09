@@ -91,7 +91,7 @@ async function main() {
 
     renderer.ui = uiController;
     await renderer.init();
-    uiController.init();
+    await uiController.init();
     renderer.startRendering();
 
     let sceneLoader = setupSceneLoader();
