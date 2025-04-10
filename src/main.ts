@@ -9,6 +9,8 @@ import { QuadTree } from "./Optimization";
 import SceneWorker from './workers/SceneWorker.ts?worker';
 import { Utils } from "./Utils";
 import { UIController } from "./ui/UIController ";
+import { Controller } from "./Controller";
+import { SceneSyncer } from "./SceneSyncer";
 
 declare global {
     interface Window {
@@ -51,48 +53,12 @@ async function main() {
 
     const device = deviceManager.getDevice();
 
-    const canvas: HTMLCanvasElement = <HTMLCanvasElement>document.getElementById("gfx-main");
-    const wrapper = document.getElementById('canvas-wrapper')!;
+    const controller = new Controller(device)
+    await controller.init();
+    controller.start();
 
-    const camera: Camera = new Camera(
-        [10, 10, 10],
-        [0, 0, 0],
-        [0, 1, 0],
-        Math.PI / 4,
-        canvas.width / canvas.height,
-        0.1,
-        10000
-    );
-
-    const devicePixelRatio = window.devicePixelRatio || 1;
-    function updateCanvasSize() {
-        const width = Math.floor(wrapper.clientWidth * devicePixelRatio);
-        const height = Math.floor(wrapper.clientHeight * devicePixelRatio);
-
-        if (canvas.width !== width || canvas.height !== height) {
-            canvas.width = width;
-            canvas.height = height;
-            renderer.resize(width, height);
-        }
-
-        camera.aspect = width / height;
-        camera.setProjection();
-    }
-
-    const resizeObserver = new ResizeObserver(updateCanvasSize);
-    resizeObserver.observe(wrapper);
-
-
-    const scene: Scene = new Scene(camera);
-    const inputHandler = new InputHandler(canvas, camera, scene);
-
-    const renderer = new Renderer(canvas, scene, device);
-    const uiController = new UIController(renderer);
-
-    renderer.ui = uiController;
-    await renderer.init();
+    const uiController = new UIController(controller);
     await uiController.init();
-    renderer.startRendering();
 
     let sceneLoader = setupSceneLoader();
 
@@ -102,32 +68,32 @@ async function main() {
         const newLoader = new SceneLoader(SceneWorker);
         newLoader.setCallbacks({
             onPointsLoaded: ({ points, colors, classification, bounds }) => {
-                scene.points = points;
-                scene.colors = colors;
-                scene.classification = classification;
-                scene.bounds = bounds;
+                controller.scene.points = points;
+                controller.scene.colors = colors;
+                controller.scene.classification = classification;
+                controller.scene.bounds = bounds;
 
-                scene.focusCameraOnPointCloud();
-                renderer.setPointData();
+                controller.viewports.focusCameraOnPointCloud();
+                controller.setPointData();
 
                 newLoader.startTreeBuild(points, bounds, treeDepth);
             },
 
             onTreeBuilt: (treeData) => {
-                scene.tree = QuadTree.reconstruct(treeData, treeDepth);
-                renderer.setNodeData().then(() => {
+                controller.scene.tree = QuadTree.reconstruct(treeData, treeDepth);
+                controller.setNodeData().then(() => {
                     uiController.setRunNodesButtonDisabled(false);
                 });;
             },
 
             onTriangulationDone: ({ indices, triangleCount, treeData, nodeToTriangles }) => {
-                scene.indices = indices;
-                scene.triangleCount = triangleCount;
-                scene.tree = QuadTree.reconstruct(treeData, treeDepth);
-                scene.nodeToTriangles = nodeToTriangles;
+                controller.scene.indices = indices;
+                controller.scene.triangleCount = triangleCount;
+                controller.scene.tree = QuadTree.reconstruct(treeData, treeDepth);
+                controller.scene.nodeToTriangles = nodeToTriangles;
 
-                renderer.setNodeData(false);
-                renderer.setMeshData().then(() => {
+                controller.setNodeData(false);
+                controller.setMeshData().then(() => {
                     uiController.setRunPointsButtonDisabled(false);
                     uiController.setRunPanoramaButtonDisabled(false);
                 });
@@ -155,8 +121,8 @@ async function main() {
                 }, [arrayBuffer]);
             };
 
-            scene.clear();
-            renderer.reset();
+            controller.scene.clear();
+            controller.reset();
 
             sceneLoader.shutdown();
             sceneLoader = setupSceneLoader();
@@ -197,4 +163,6 @@ async function main() {
     sceneLoader.worker.postMessage({ type: "load-url", url });
 }
 
-main().catch(console.error);
+window.addEventListener("DOMContentLoaded", () => {
+    main().catch(console.error);
+  });

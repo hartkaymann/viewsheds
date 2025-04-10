@@ -1,12 +1,19 @@
-import { Renderer } from "../Renderer";
+import { CollisionSystem } from "../CollisionSystem";
+import { Controller } from "../Controller";
+import { SceneSyncer } from "../SceneSyncer";
 import { Utils } from "../Utils";
+import { Viewport } from "../Viewport";
 
 export class UIController {
 
-    renderer: Renderer;
+    controller: Controller;
+    viewport: Viewport;
+    collision: CollisionSystem;
 
-    constructor(renderer: Renderer) {
-        this.renderer = renderer;
+    constructor(controller: Controller) {
+        this.controller = controller;
+        this.viewport = controller.viewports;
+        this.collision = controller.collisionSystem;
     }
 
     async init() {
@@ -36,16 +43,17 @@ export class UIController {
     async handleUpdateRaySamples() {
         const samplesX = parseInt((<HTMLInputElement>document.getElementById("samplesX")).value);
         const samplesY = parseInt((<HTMLInputElement>document.getElementById("samplesY")).value);
-        this.renderer.updateRaySamples([samplesX, samplesY]);
-        await this.renderer.runGenerateRays();
+        this.controller.updateRaySamples([samplesX, samplesY]);
+        await this.collision.runGenerateRays();
     }
 
     async handleUpdateRayOrigin() {
         const ox = parseFloat((<HTMLInputElement>document.getElementById("originX")).value);
         const oy = parseFloat((<HTMLInputElement>document.getElementById("originY")).value);
         const oz = parseFloat((<HTMLInputElement>document.getElementById("originZ")).value);
-        this.renderer.updateRayOrigin([ox, oy, oz]);
-        await this.renderer.runGenerateRays();
+        this.controller.scene.rays.origin = [ox, oy, oz];
+        this.controller.updateRayOrigin([ox, oy, oz]);
+        await this.collision.runGenerateRays();
     }
 
     async handleUpdateThetaPhi() {
@@ -53,45 +61,47 @@ export class UIController {
         const endTheta = parseFloat((<HTMLInputElement>document.getElementById("endTheta")).value);
         const startPhi = parseFloat((<HTMLInputElement>document.getElementById("startPhi")).value);
         const endPhi = parseFloat((<HTMLInputElement>document.getElementById("endPhi")).value);
-        this.renderer.updateThetaPhi([startTheta, endTheta], [startPhi, endPhi]);
-        await this.renderer.runGenerateRays();
+        this.controller.scene.rays.theta = [startTheta, endTheta];
+        this.controller.scene.rays.phi = [startPhi, endPhi];
+        this.controller.updateThetaPhi([startTheta, endTheta], [startPhi, endPhi]);
+        await this.collision.runGenerateRays();
     }
 
     handleUpdateRenderMode() {
         const renderMode = parseInt((document.getElementById("renderMode") as HTMLSelectElement).value, 10);
-        this.renderer.updateRenderMode(renderMode);
+        this.viewport.updateRenderMode(renderMode);
     }
 
     handleClearVisibility() {
-        this.renderer.clearVisibility();
+        this.viewport.clearVisibility();
     }
 
     handleNodeCollision() {
         const sortNodesCheckbox = <HTMLInputElement>document.getElementById("sortNodes");
         const sortNodes = sortNodesCheckbox.checked;
 
-        this.renderer.runNodeCollision(sortNodes);
+        this.collision.runNodeCollision(sortNodes);
 
-        Utils.copyAndDisplayRayDebugData(this.renderer.device, this.renderer.bufferManager, this.renderer.raySamples, this.renderer.scene.tree.depth);
+        Utils.copyAndDisplayRayDebugData(this.controller.device, this.controller.bufferManager, this.controller.scene.rays.samples, this.controller.scene.tree.depth);
     }
 
     handleRunPointCollision() {
-        this.renderer.runPointCollision();
+        this.collision.runPointCollision();
     }
 
     async handleRunPanorama() {
         const panoramaButton = document.getElementById("runPanorama") as HTMLButtonElement;
 
-        if (!this.renderer.runningPanorama) {
-            this.renderer.runningPanorama = true;
+        if (!this.controller.collisionSystem.runningPanorama) {
+            this.controller.collisionSystem.runningPanorama = true;
             panoramaButton.innerText = "Cancel Panorama";
 
-            await this.renderer.runPanoramaPass();
+            await this.controller.runPanoramaPass();
 
-            this.renderer.runningPanorama = false;
+            this.controller.collisionSystem.runningPanorama = false;
             panoramaButton.innerText = "Run Panorama";
         } else {
-            this.renderer.runningPanorama = false;
+            this.controller.collisionSystem.runningPanorama = false;
 
         }
     }
@@ -99,25 +109,25 @@ export class UIController {
     handleRenderPointsChanged() {
         const renderPointsCheckbox = <HTMLInputElement>document.getElementById("renderPoints");
         const renderPoints = renderPointsCheckbox.checked;
-        this.renderer.renderPoints = renderPoints;
+        this.controller.renderSettings.points = renderPoints;
     }
 
     handleRenderMeshChanged() {
         const renderMeshCheckbox = <HTMLInputElement>document.getElementById("renderMesh");
         const renderMesh = renderMeshCheckbox.checked;
-        this.renderer.renderMesh = renderMesh;
-    }
-
-    handleRenderRaysChanged() {
-        const renderRaysCheckbox = <HTMLInputElement>document.getElementById("renderRays");
-        const renderRays = renderRaysCheckbox.checked;
-        this.renderer.renderRays = renderRays;
+        this.controller.renderSettings.mesh = renderMesh;
     }
 
     handleRenderNodesChanged() {
         const renderNodesCheckbox = <HTMLInputElement>document.getElementById("renderNodes");
         const renderNodes = renderNodesCheckbox.checked;
-        this.renderer.renderNodes = renderNodes;
+        this.controller.renderSettings.nodes = renderNodes;
+    }
+
+    handleRenderRaysChanged() {
+        const renderRaysCheckbox = <HTMLInputElement>document.getElementById("renderRays");
+        const renderRays = renderRaysCheckbox.checked;
+        this.controller.renderSettings.rays = renderRays;
     }
 
     setRunNodesButtonDisabled(disabled: boolean) {

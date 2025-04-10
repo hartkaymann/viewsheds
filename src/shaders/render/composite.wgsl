@@ -28,12 +28,11 @@ fn main(@builtin(vertex_index) index: u32) -> VertexOutput {
 
 @fragment
 fn main_fs(in: VertexOutput) -> @location(0) vec4f {
-   let accum = textureSample(accumTexture, accumSampler, in.uv);
+  let accum = textureSample(accumTexture, accumSampler, in.uv);
   let reveal = textureSample(revealTexture, accumSampler, in.uv);
-  let alpha = 1.0 - reveal.r;
 
-  // Avoid division by zero
-  let color = accum.rgb / max(accum.a, 0.0001);
+  let color = accum.rgb / clamp(accum.a, 1e-4, 5e4);
+  let alpha = 1.0 - reveal.r;
 
   return vec4f(color, alpha);
 }

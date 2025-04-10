@@ -51,7 +51,7 @@ fn main(
 
     case 1u: {  // Visibility mode
       let isVisible = getBoolean(vIndex);
-      output.color = select(vec4f(1.0, 1.0, 1.0, 0.1), vec4f(1.0, 1.0, 1.0, 1.0), isVisible);
+      output.color = select(vec4f(0.1, 0.1, 0.1, 1.0), vec4f(1.0, 1.0, 1.0, 1.0), isVisible);
     }
 
     case 2u: { // Quadtree node
@@ -81,8 +81,11 @@ struct FragmentOutput {
 fn main_fs(in: VertexOutput) -> FragmentOutput {
     var output: FragmentOutput;
 
-    output.accumColor = in.color * in.color.a;
-    output.revealage = vec4f(1.0 - in.color.a);
+    let c = in.color.rgb;
+    let a = in.color.a;
+
+    output.accumColor = vec4f(c * a, a);
+    output.revealage = vec4f(1.0 - a);
 
     return output;
 }
