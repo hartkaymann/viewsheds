@@ -67,6 +67,18 @@ export class UIController {
         await this.collision.runGenerateRays();
     }
 
+    updateThetaPhiInputs(theta: [number, number], phi: [number, number]) {
+        const startThetaInput = document.getElementById("startTheta") as HTMLInputElement;
+        const endThetaInput = document.getElementById("endTheta") as HTMLInputElement;
+        const startPhiInput = document.getElementById("startPhi") as HTMLInputElement;
+        const endPhiInput = document.getElementById("endPhi") as HTMLInputElement;
+      
+        if (startThetaInput) startThetaInput.value = theta[0].toString();
+        if (endThetaInput) endThetaInput.value = theta[1].toString();
+        if (startPhiInput) startPhiInput.value = phi[0].toString();
+        if (endPhiInput) endPhiInput.value = phi[1].toString();
+      }
+
     handleUpdateRenderMode() {
         const renderMode = parseInt((document.getElementById("renderMode") as HTMLSelectElement).value, 10);
         this.viewport.updateRenderMode(renderMode);
@@ -129,6 +141,20 @@ export class UIController {
         const renderRays = renderRaysCheckbox.checked;
         this.controller.renderSettings.rays = renderRays;
     }
+
+    setRayInputsDisabled(disabled: boolean) {
+        const inputs = [
+          "startTheta",
+          "endTheta",
+          "startPhi",
+          "endPhi"
+        ];
+      
+        for (const id of inputs) {
+          const el = document.getElementById(id) as HTMLInputElement | null;
+          if (el) el.disabled = disabled;
+        }
+      }
 
     setRunNodesButtonDisabled(disabled: boolean) {
         const runNodesButton = document.getElementById("runNodes") as HTMLButtonElement;

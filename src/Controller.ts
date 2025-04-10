@@ -305,6 +305,8 @@ export class Controller {
         const endPhi = 2 * Math.PI / 3;
         const step = Math.PI / 180; // 1 degree
 
+        this.ui?.setRayInputsDisabled(true);
+
         for (let theta = 0; theta < 2 * Math.PI; theta += step) {
             if (!this.collisionSystem.runningPanorama) {
                 Utils.showToast("Panorama stopped.", "info");
@@ -321,6 +323,8 @@ export class Controller {
 
             await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
         }
+
+        this.ui?.setRayInputsDisabled(false);
     }
 
     async setPointData() {
@@ -386,6 +390,8 @@ export class Controller {
         this.scene.rays.theta = theta;
         this.scene.rays.phi = phi;
         this.sync.updateThetaPhi(theta, phi);
+
+        this.ui?.updateThetaPhiInputs(theta, phi);
     }
 
 

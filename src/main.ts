@@ -1,5 +1,4 @@
 import { Scene } from "./Scene";
-import { Renderer } from "./Renderer";
 import { Camera } from "./Camera";
 import { InputHandler } from "./InputHandler";
 import { DeviceManager } from "./DeviceManager";
@@ -59,6 +58,7 @@ async function main() {
 
     const uiController = new UIController(controller);
     await uiController.init();
+    controller.ui = uiController;
 
     let sceneLoader = setupSceneLoader();
 
