@@ -90,15 +90,18 @@ export class BindGroupManager {
         for (const [groupName, entries] of this.groupEntries.entries()) {
             let needsUpdate = false;
             const updatedEntries = entries.map(entry => {
-                const resource = entry.resource as { buffer: GPUBuffer };
-                const oldBuffer = resource.buffer;
+                const resource = entry.resource as any;
 
-                if (!oldBuffer.label) throw new Error("Buffer missing label for identification");
-                const name = oldBuffer.label!;
+                if ('buffer' in resource) {
+                    const oldBuffer = resource.buffer;
 
-                if (name === bufferName) {
-                    needsUpdate = true;
-                    return { ...entry, resource: { buffer: newBuffer } };
+                    if (!oldBuffer.label) throw new Error("Buffer missing label for identification");
+                    const name = oldBuffer.label!;
+
+                    if (name === bufferName) {
+                        needsUpdate = true;
+                        return { ...entry, resource: { buffer: newBuffer } };
+                    }
                 }
                 return entry;
             });

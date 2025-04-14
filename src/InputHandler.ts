@@ -1,22 +1,19 @@
 import { mat4, vec3 } from "gl-matrix";
 import { Camera } from "./Camera";
-import { Scene } from "./Scene";
 
 export class InputHandler {
 
     canvas: HTMLCanvasElement;
     camera: Camera;
-    scene: Scene;
 
     isMiddleMouseDragging = false;
     isLeftMouseDragging = false;
     lastMouseX = 0;
     lastMouseY = 0;
 
-    constructor(canvas: HTMLCanvasElement, camera: Camera, scene: Scene) {
+    constructor(canvas: HTMLCanvasElement, camera: Camera) {
         this.canvas = canvas;
         this.camera = camera;
-        this.scene = scene;
 
         this.init();
     }

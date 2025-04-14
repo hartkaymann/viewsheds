@@ -46,12 +46,12 @@ fn main(
  
   switch renderMode {
     case 0u: {  // Vertex color mode
-      output.color = vec4f(color.xyz, 1.0);
+      output.color = vec4f(color.rgb, 1.0);
     }
 
     case 1u: {  // Visibility mode
       let isVisible = getBoolean(vIndex);
-      output.color = select(vec4f(1.0, 1.0, 1.0, 0.1), vec4f(1.0, 1.0, 1.0, 1.0), isVisible);
+      output.color = select(vec4f(0.1, 0.1, 0.1, 1.0), vec4f(1.0, 1.0, 1.0, 1.0), isVisible);
     }
 
     case 2u: { // Quadtree node
@@ -64,7 +64,6 @@ fn main(
       output.color = vec4f(randomColor(classIndex), 1.0);
     }
 
-
     default: {
       output.color = vec4f(1.0, 1.0, 1.0, 1.0);
     }
@@ -73,7 +72,20 @@ fn main(
   return output;
 }
 
+struct FragmentOutput {
+    @location(0) accumColor: vec4f,
+    @location(1) revealage: vec4f,
+    }
+
 @fragment
-fn main_fs(in: VertexOutput) -> @location(0) vec4<f32> {
-    return in.color;
+fn main_fs(in: VertexOutput) -> FragmentOutput {
+    var output: FragmentOutput;
+
+    let c = in.color.rgb;
+    let a = in.color.a;
+
+    output.accumColor = vec4f(c * a, a);
+    output.revealage = vec4f(1.0 - a);
+
+    return output;
 }
