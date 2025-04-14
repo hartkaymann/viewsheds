@@ -51,35 +51,18 @@ self.onmessage = async (e) => {
     try {
         switch (msg.type) {
             case "load-url": {
-                if (shouldShutdown) return;
-
                 const { url } = msg;
+                await handleLoadAndRespond(url, async () => {
+                    const response = await fetch(`${url}?nocache=${Date.now()}`);
+                    if (!response.ok) throw new Error(`Failed to load file: ${response.statusText}`);
+                    return response.arrayBuffer();
+                });
+                return;
+            }
 
-                console.log(`Checking cache for: ${url}`);
-
-                const cached = await loadFromCache(url);
-                if (cached) {
-                    const bounds = calculateBounds(cached.points);
-
-                    if (shouldShutdown) return;
-                    postMessage(
-                        { type: "loaded", ...cached, bounds },
-                        [cached.points.buffer, cached.colors?.buffer, cached.classification?.buffer].filter(Boolean)
-                    );
-                    return;
-                }
-
-                const { points: rawPoints, colors: rawColors, classification: rawClassification } = await loadFromFile(url);
-                const { points, colors, classification, bounds } = sortPointCloud(rawPoints, rawColors, rawClassification);
-
-                await storeInCache(url, points, colors, classification);
-
-
-                if (shouldShutdown) return;
-                self.postMessage(
-                    { type: "loaded", points, colors, classification, bounds },
-                    [points.buffer, colors.buffer, classification.buffer]
-                );
+            case "load-arraybuffer": {
+                const { name, buffer } = msg;
+                await handleLoadAndRespond(name, async () => buffer);
                 return;
             }
 
@@ -108,6 +91,37 @@ self.onmessage = async (e) => {
         postMessage({ type: "error", error: (err as Error).message });
     }
 };
+
+async function handleLoadAndRespond(
+    sourceId: string, // could be a URL or file name
+    bufferProvider: () => Promise<ArrayBuffer>
+) {
+    if (shouldShutdown) return;
+
+    console.log(`Checking cache for: ${sourceId}`);
+    const cached = await loadFromCache(sourceId);
+    if (cached) {
+        const bounds = calculateBounds(cached.points);
+        if (shouldShutdown) return;
+        postMessage(
+            { type: "loaded", ...cached, bounds },
+            [cached.points.buffer, cached.colors?.buffer, cached.classification?.buffer].filter(Boolean)
+        );
+        return;
+    }
+
+    const buffer = await bufferProvider();
+    const { points: rawPoints, colors: rawColors, classification: rawClassification } = await parseLASPoints(buffer);
+    const { points, colors, classification, bounds } = sortPointCloud(rawPoints, rawColors, rawClassification);
+
+    await storeInCache(sourceId, points, colors, classification);
+
+    if (shouldShutdown) return;
+    postMessage(
+        { type: "loaded", points, colors, classification, bounds },
+        [points.buffer, colors?.buffer, classification?.buffer].filter(Boolean)
+    );
+}
 
 function loadFromCache(url: string): Promise<{
     points: Float32Array;
@@ -183,22 +197,6 @@ function loadFromCache(url: string): Promise<{
     });
 }
 
-async function loadFromFile(url: string): Promise<{
-    points: Float32Array,
-    colors: Float32Array,
-    classification: Uint32Array
-}> {
-    console.log(`Fetching binary data from: ${url}`);
-
-    const response = await fetch(`${url}?nocache=${Date.now()}`);
-    if (!response.ok) throw new Error(`Failed to load file: ${response.statusText}`);
-
-    const arrayBuffer = await response.arrayBuffer();
-    console.log("Successfully fetched file, initializing LAS/LAZ parser...");
-
-    return parseLASPoints(arrayBuffer);
-}
-
 async function parseLASPoints(arrayBuffer: ArrayBuffer): Promise<{
     points: Float32Array | null,
     colors: Float32Array | null,
@@ -234,7 +232,7 @@ async function parseLASPoints(arrayBuffer: ArrayBuffer): Promise<{
     const readPoint = pointFormatReaders[formatId];
     if (!readPoint) {
         throw new Error(`Unsupported point format: ${formatId}`);
-      }
+    }
 
     for (let i = 0; i < pointCount; ++i) {
         laszip.getPoint(dataPtr);
@@ -260,7 +258,7 @@ async function parseLASPoints(arrayBuffer: ArrayBuffer): Promise<{
             const b = bRaw / 65535;
             const a = 1.0;
             colors.set([r, g, b, a], i * 4);
-          }
+        }
     }
 
     // Clean up
