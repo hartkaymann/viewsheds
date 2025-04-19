@@ -1,8 +1,6 @@
 import { vec3 } from "gl-matrix";
-import { Camera } from "./Camera";
 import { QuadTree } from "./Optimization";
 import { Bounds } from "./types/types";
-import { Gizmo } from "./Gizmo";
 
 interface RaysConfig {
     origin: [number, number, number],
@@ -32,7 +30,6 @@ export class Scene {
         theta: [0, 0],
         phi: [0, 0]
     };
-
 
     constructor() { }
 
