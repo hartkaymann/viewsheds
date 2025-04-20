@@ -13,11 +13,11 @@ const positions = array<vec3<f32>, 4>(
 );
 const indices = array<u32, 6>(0, 2, 1, 2, 0, 3);
 
-const gridSize = 100.0;
+const gridSize = 5000.0;
 const gridMinPixelsBetweenCells = 2.0;
 const gridCellSize = 0.025;
 const gridColorThin = vec4(0.5, 0.5, 0.5, 1.0);
-const gridColorThick = vec4(0.0, 0.0, 0.0, 1.0);
+const gridColorThick = vec4(0.8, 0.8, 0.8, 1.0);
 
 @group(0) @binding(0)
 var<uniform> uniforms: GridUniforms;
@@ -59,8 +59,8 @@ fn main(
     let pos4 = vec4f(pos, 1.0);
 
     var out: VertexOutput;
-    out.position = uniforms.gVP * pos4;
-    out.worldPos = worldPos;
+    out.worldPos = pos;
+    out.position = uniforms.gVP * vec4f(pos, 1.0);
 
     return out;
 }
@@ -79,7 +79,7 @@ fn main_fs(
 
     let l = length(dudv);
 
-    let lod = max(0.0, log10(l * gridMinPixelsBetweenCells / gridCellSize) + 1.0);
+    let lod = clamp(max(0.0, log10(l * gridMinPixelsBetweenCells / gridCellSize) + 1.0), 0.0, 6.0);
 
     let gridCellSizeLod0 = gridCellSize * pow(10.0, floor(lod));
     let gridCellSizeLod1 = gridCellSizeLod0 * 10.0;
@@ -87,14 +87,15 @@ fn main_fs(
 
     dudv *= 4.0;
 
-    var mod_div_dudv = (worldPos.xz % gridCellSizeLod0) / dudv;
-    let lod0a = max2(vec2f(1.0) - abs(satv(mod_div_dudv) * 2.0 - vec2f(1.0)) );
+    let sharpness = 4.0; 
+    var mod_div_dudv = fract(worldPos.xz / gridCellSizeLod0) * gridCellSizeLod0 / dudv;
+    let lod0a = pow(max2(vec2f(1.0) - abs(satv(mod_div_dudv) * 2.0 - vec2f(1.0))), sharpness);
 
-    mod_div_dudv = (worldPos.xz % gridCellSizeLod1) / dudv;
-    let lod1a = max2(vec2f(1.0) - abs(satv(mod_div_dudv) * 2.0 - vec2f(1.0)) );
+    mod_div_dudv = fract(worldPos.xz / gridCellSizeLod1) * gridCellSizeLod1 / dudv;
+    let lod1a = pow(max2(vec2f(1.0) - abs(satv(mod_div_dudv) * 2.0 - vec2f(1.0))), sharpness);
 
-    mod_div_dudv = (worldPos.xz % gridCellSizeLod2) / dudv;
-    let lod2a = max2(vec2f(1.0) - abs(satv(mod_div_dudv) * 2.0 - vec2f(1.0)) );
+    mod_div_dudv = fract(worldPos.xz / gridCellSizeLod2) * gridCellSizeLod2 / dudv;
+    let lod2a = pow(max2(vec2f(1.0) - abs(satv(mod_div_dudv) * 2.0 - vec2f(1.0))), sharpness);
     
     let LOD_fade = fract(lod);
     var color: vec4f;
@@ -116,6 +117,9 @@ fn main_fs(
 
     color.a *= opacityFalloff;
 
-    // return color;
-    return vec4f(1.0, 1.0, 1.0, 1.0);
+    if (color.a <= 0.0) {
+        discard;
+    }
+
+    return color;
 }

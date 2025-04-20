@@ -84,7 +84,7 @@ fn main_fs(in: VertexOutput) -> FragmentOutput {
     let a = in.color.a;
 
     output.accumColor = vec4f(c * a, a);
-output.revealage = 0.0;
+    output.revealage = 1.0 - a;
 
     return output;
 }

@@ -151,7 +151,6 @@ export class Camera {
         vec3.scale(direction, direction, zoomAmount);
         vec3.add(this.position, this.position, direction);
 
-        vec3.add(this.position, this.position, direction);
         this.updateView();
     }
 

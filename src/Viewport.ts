@@ -390,8 +390,8 @@ export class Viewport {
         },
         depthStencil: {
           format: "depth24plus",
-          depthWriteEnabled: false,
-          depthCompare: "less",
+          depthWriteEnabled: true,
+          depthCompare: "always",
         },
       }
     });
@@ -520,7 +520,7 @@ export class Viewport {
           ]
         },
         primitive: { topology: 'point-list' },
-        depthStencil: { format: "depth24plus", depthWriteEnabled: false, depthCompare: "less" },
+        depthStencil: { format: "depth24plus", depthWriteEnabled: true, depthCompare: "less" },
       },
     });
 
@@ -694,7 +694,6 @@ export class Viewport {
     const vpMatrixBuffer = new Float32Array(vpMatrix);
     const cameraPositionBuffer = new Float32Array(4);
     cameraPositionBuffer.set(this.camera.position);
-    cameraPositionBuffer[3] = 0.0;
 
     this.bufferManager.write("grid_uniforms", vpMatrixBuffer, 0);
     this.bufferManager.write("grid_uniforms", cameraPositionBuffer, 64);
