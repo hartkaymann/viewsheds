@@ -13,10 +13,10 @@ const positions = array<vec3<f32>, 4>(
 );
 const indices = array<u32, 6>(0, 2, 1, 2, 0, 3);
 
-const gridSize = 5000.0;
-const gridMinPixelsBetweenCells = 2.0;
-const gridCellSize = 0.025;
-const gridColorThin = vec4(0.5, 0.5, 0.5, 1.0);
+const gridSize = 10000.0;
+const gridMinPixelsBetweenCells = 12.0;
+const gridCellSize = 20.0;
+const gridColorThin = vec4(0.6, 0.6, 0.6, 0.5);
 const gridColorThick = vec4(0.8, 0.8, 0.8, 1.0);
 
 @group(0) @binding(0)
@@ -65,6 +65,23 @@ fn main(
     return out;
 }
 
+fn pristine_grid(uv: vec2f, line_width: vec2f) -> f32 {
+    let ddx = dpdx(uv);
+    let ddy = dpdy(uv);
+    let uv_deriv = vec2f(length(vec2f(ddx.x, ddy.x)), length(vec2f(ddx.y, ddy.y)));
+
+    let target_width = clamp(line_width, uv_deriv, vec2f(0.5));
+    let line_aa = uv_deriv * 1.5;
+
+    var grid_uv = abs(fract(uv) * 2.0 - 1.0);
+    grid_uv = 1.0 - grid_uv;
+
+    var grid = smoothstep(target_width + line_aa, target_width - line_aa, grid_uv);
+    grid *= clamp(line_width / target_width, vec2f(0.0), vec2f(1.0));
+
+    return mix(grid.x, 1.0, grid.y); // single blended result
+}
+
 @fragment
 fn main_fs(
     @location(0) worldPos: vec3f,
@@ -81,9 +98,13 @@ fn main_fs(
 
     let lod = clamp(max(0.0, log10(l * gridMinPixelsBetweenCells / gridCellSize) + 1.0), 0.0, 6.0);
 
-    let gridCellSizeLod0 = gridCellSize * pow(10.0, floor(lod));
-    let gridCellSizeLod1 = gridCellSizeLod0 * 10.0;
-    let gridCellSizeLod2 = gridCellSizeLod1 * 10.0;
+    let gridCellSizeLod0 = 20.0;
+    let gridCellSizeLod1 = 100.0;
+    let gridCellSizeLod2 = 500.0;
+
+    const colorLod0 = vec4f(0.4, 0.4, 0.4, 0.4); // fine grid
+    const colorLod1 = vec4f(0.6, 0.6, 0.6, 0.6); // medium grid
+    const colorLod2 = vec4f(0.8, 0.8, 0.8, 1.0); // major grid
 
     dudv *= 4.0;
 
@@ -100,24 +121,22 @@ fn main_fs(
     let LOD_fade = fract(lod);
     var color: vec4f;
 
-    if (lod2a > 0.0) {
-        color = gridColorThick;
+    if (lod >= 2.0) {
+        color = colorLod2;
         color.a *= lod2a;
+    } else if (lod >= 1.0) {
+        color = colorLod1;
+        color.a *= lod1a;
     } else {
-        if (lod1a > 0.0) {
-            color = mix(gridColorThick, gridColorThin, LOD_fade);
-	        color.a *= lod1a;
-        } else {
-            color = gridColorThin;
-	        color.a *= (lod0a * (1.0 - LOD_fade));
-        }
+        color = colorLod0;
+        color.a *= lod0a;
     }
 
-    let opacityFalloff = (1.0 - satf(length(worldPos.xz - uniforms.cameraWorldPos.xz) / gridSize));
-
+    let fade = 1.0 - satf(distance(worldPos.xz, uniforms.cameraWorldPos.xz) / gridSize);
+    let opacityFalloff = pow(fade, 2.5);
     color.a *= opacityFalloff;
 
-    if (color.a <= 0.0) {
+    if (color.a <= 0.001) {
         discard;
     }
 
