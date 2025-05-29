@@ -3,10 +3,11 @@ import wireframe_src from "./shaders/render/wireframe.wgsl"
 import points_src from "./shaders/render/points.wgsl"
 import rays_src from "./shaders/render/rays.wgsl"
 import gizmo_src from "./shaders/render/gizmo.wgsl"
+import grid_src from "./shaders/render/grid.wgsl"
 import nodes_src from "./shaders/render/nodes.wgsl"
 import composite_src from "./shaders/render/composite.wgsl"
 
-import { vec3 } from "gl-matrix";
+import { mat4, vec3 } from "gl-matrix";
 import { BindGroupManager } from "./BindGroupsManager";
 import { BufferManager } from "./BufferManager";
 import { Camera } from "./Camera";
@@ -16,6 +17,7 @@ import { Scene } from "./Scene";
 import { PipelineManager } from "./PipelineManager";
 import { QuadTree } from "./Optimization"
 import { RenderPlan } from "./Controller"
+import { Grid } from "./Grid"
 
 export class Viewport {
   device: GPUDevice;
@@ -31,11 +33,14 @@ export class Viewport {
   camera: Camera;
   input: InputHandler;
   gizmo: Gizmo | null = null;
+  grid: Grid | null = null;
 
   // Device/Context objects
   renderPassDescriptor: GPURenderPassDescriptor;
   transparentPassDescriptor: GPURenderPassDescriptor;
   compositePassDescriptor: GPURenderPassDescriptor;
+  gridPassDescriptor: GPURenderPassDescriptor;
+  gizmoPassDescriptor: GPURenderPassDescriptor;
 
   //Assets
   depthTexture: GPUTexture;
@@ -85,6 +90,7 @@ export class Viewport {
     this.input = new InputHandler(this.canvas, this.camera);
 
     this.gizmo = new Gizmo();
+    this.grid = new Grid();
   }
 
   async init() {
@@ -108,6 +114,11 @@ export class Viewport {
       {
         name: "gizmo_uniforms",
         size: 192,
+        usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+      },
+      {
+        name: "grid_uniforms",
+        size: 80,
         usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
       },
       {
@@ -137,8 +148,6 @@ export class Viewport {
       ]
     });
 
-
-
     this.bindGroupManager.createLayout({
       name: "nodes",
       entries: [
@@ -165,9 +174,15 @@ export class Viewport {
       ]
     });
 
+    this.bindGroupManager.createLayout({
+      name: "grid",
+      entries: [
+        { binding: 0, visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT, buffer: { type: "uniform" } },
+      ]
+    });
+
     this.createDepthTexture(this.context.canvas.width, this.context.canvas.height);
     this.createOITTextures(this.context.canvas.width, this.context.canvas.height);
-
 
 
     this.bindGroupManager.createGroup({
@@ -214,8 +229,16 @@ export class Viewport {
     });
 
     this.bindGroupManager.createGroup({
-      name: "oit-composite",
-      layoutName: "oit-composite",
+      name: "grid",
+      layoutName: "grid",
+      entries: [
+        { binding: 0, resource: { buffer: this.bufferManager.get("grid_uniforms") } },
+      ]
+    });
+
+    this.bindGroupManager.createGroup({
+      name: "composite",
+      layoutName: "composite",
       entries: [
         {
           binding: 0, resource: this.device.createSampler({
@@ -240,6 +263,10 @@ export class Viewport {
     const pipeline_layout_gizmo = this.device.createPipelineLayout({
       label: 'pipeline-layout-gizmo',
       bindGroupLayouts: this.bindGroupManager.getLayouts(["gizmo"])
+    });
+    const pipeline_layout_grid = this.device.createPipelineLayout({
+      label: 'pipeline-layout-grid',
+      bindGroupLayouts: this.bindGroupManager.getLayouts(["grid"])
     });
     const pipeline_layout_nodes = this.device.createPipelineLayout({
       label: 'pipeline-layout-nodes',
@@ -326,6 +353,46 @@ export class Viewport {
         primitive: {
           topology: 'line-strip',
         }
+      }
+    });
+
+    this.pipelineManager.create({
+      name: "render-grid",
+      type: "render",
+      layout: pipeline_layout_grid,
+      code: grid_src,
+      render: {
+        vertex: {
+          entryPoint: 'main',
+        },
+        fragment: {
+          entryPoint: 'main_fs',
+          targets: [
+            {
+              format: 'bgra8unorm',
+              blend: {
+                color: {
+                  srcFactor: "src-alpha",
+                  dstFactor: "one-minus-src-alpha",
+                  operation: "add",
+                },
+                alpha: {
+                  srcFactor: "one",
+                  dstFactor: "one-minus-src-alpha",
+                  operation: "add",
+                },
+              },
+            }
+          ]
+        },
+        primitive: {
+          topology: 'triangle-list',
+        },
+        depthStencil: {
+          format: "depth24plus",
+          depthWriteEnabled: true,
+          depthCompare: "always",
+        },
       }
     });
 
@@ -436,23 +503,24 @@ export class Viewport {
           },
           {
             format: 'r16float',
-            blend: {
-              color: {
-                srcFactor: "zero",
-                dstFactor: "one-minus-src-alpha",
-                operation: "add",
-              },
-              alpha: {
-                srcFactor: "zero",
-                dstFactor: "one",
-                operation: "add",
-              },
-            },
+            blend: undefined,
+            // blend: {
+            //   color: {
+            //     srcFactor: "one",
+            //     dstFactor: "one",
+            //     operation: "add",
+            //   },
+            //   alpha: {
+            //     srcFactor: "zero",
+            //     dstFactor: "one",
+            //     operation: "add",
+            //   },
+            // },
           },
           ]
         },
         primitive: { topology: 'point-list' },
-        depthStencil: { format: "depth24plus", depthWriteEnabled: false, depthCompare: "less" },
+        depthStencil: { format: "depth24plus", depthWriteEnabled: true, depthCompare: "less" },
       },
     });
 
@@ -467,7 +535,21 @@ export class Viewport {
         },
         fragment: {
           entryPoint: 'main_fs',
-          targets: [{ format: 'bgra8unorm' }]
+          targets: [{
+            format: 'bgra8unorm',
+            blend: {
+              color: {
+                srcFactor: "src-alpha",
+                dstFactor: "one-minus-src-alpha",
+                operation: "add",
+              },
+              alpha: {
+                srcFactor: "one",
+                dstFactor: "one-minus-src-alpha",
+                operation: "add",
+              },
+            },
+          }]
         },
         primitive: {
           topology: "triangle-list",
@@ -475,6 +557,25 @@ export class Viewport {
         },
       },
     });
+
+
+    this.gridPassDescriptor = {
+      label: 'pass-grid',
+      colorAttachments: [
+        {
+          view: undefined,
+          loadOp: "clear",
+          storeOp: "store",
+          clearValue: { r: 0.12, g: 0.12, b: 0.13, a: 1.0 }, // Optional
+        }
+      ],
+      depthStencilAttachment: {
+        view: this.depthView,
+        depthLoadOp: "clear",
+        depthStoreOp: "store",
+        depthClearValue: 1.0,
+      }
+    };
 
     this.renderPassDescriptor = {
       label: 'pass-render',
@@ -488,9 +589,8 @@ export class Viewport {
       ],
       depthStencilAttachment: {
         view: this.depthView,
-        depthLoadOp: "clear",
+        depthLoadOp: "load",
         depthStoreOp: "store",
-        depthClearValue: 1.0,
       },
     };
 
@@ -507,14 +607,13 @@ export class Viewport {
           view: this.revealageTexture.createView(),
           loadOp: 'clear',
           storeOp: 'store',
-          clearValue: { r: 0, g: 0, b: 0, a: 0 }, // Only R is used
+          clearValue: { r: 1, g: 0, b: 0, a: 0 },
         },
       ],
       depthStencilAttachment: {
         view: this.depthView,
-        depthLoadOp: "clear",
-        depthStoreOp: "store",
-        depthClearValue: 1.0,
+        depthLoadOp: 'load',
+        depthStoreOp: 'store',
       },
     };
 
@@ -522,14 +621,24 @@ export class Viewport {
       colorAttachments: [
         {
           view: undefined,
-          loadOp: "clear",
-          storeOp: "store",
-          clearValue: { r: 0.12, g: 0.12, b: 0.13, a: 1.0 },
+          loadOp: 'load',
+          storeOp: 'store',
         }
       ],
     };
-    this.updateRenderMode();
 
+    this.gizmoPassDescriptor = {
+      label: 'pass-gizmo',
+      colorAttachments: [
+        {
+          view: undefined,
+          loadOp: "load",
+          storeOp: "store",
+        }
+      ]
+    };
+
+    this.updateRenderMode();
   }
 
   private createOITTextures(width: number, height: number) {
@@ -575,46 +684,39 @@ export class Viewport {
     this.device.queue.writeBuffer(this.bufferManager.get("vs_uniforms"), 64, new Float32Array(this.camera.viewMatrix));
     this.device.queue.writeBuffer(this.bufferManager.get("vs_uniforms"), 128, new Float32Array(this.camera.projectionMatrix));
 
-
     const commandEncoder: GPUCommandEncoder = this.device.createCommandEncoder();
     const swapchainTexture = this.context.getCurrentTexture();
     const swapchainView = swapchainTexture.createView();
-    this.compositePassDescriptor.colorAttachments[0].view = swapchainView;
-    this.renderPassDescriptor.colorAttachments[0].view = swapchainTexture.createView();
-    this.renderPassDescriptor.depthStencilAttachment!.view = this.depthView;
 
-    if (plan.transparent) {
-      // Transparent pass (accum + revealage targets)
-      this.transparentPassDescriptor.colorAttachments[0].view = this.accumTexture.createView();
-      this.transparentPassDescriptor.colorAttachments[1].view = this.revealageTexture.createView();
-      this.transparentPassDescriptor.depthStencilAttachment!.view = this.depthView;
+    // Begin: Render grid
+    const vpMatrix = mat4.create();
+    mat4.multiply(vpMatrix, this.camera.projectionMatrix, this.camera.viewMatrix);
+    const vpMatrixBuffer = new Float32Array(vpMatrix);
+    const cameraPositionBuffer = new Float32Array(4);
+    cameraPositionBuffer.set(this.camera.position);
 
-      const oitPass = commandEncoder.beginRenderPass(this.transparentPassDescriptor);
-      oitPass.setPipeline(this.pipelineManager.get<GPURenderPipeline>("oit-points-transparent"));
-      oitPass.setBindGroup(0, this.bindGroupManager.getGroup("render"));
-      oitPass.setBindGroup(1, this.bindGroupManager.getGroup("points"));
-      oitPass.setVertexBuffer(0, this.bufferManager.get("points"));
-      oitPass.setVertexBuffer(1, this.bufferManager.get("colors"));
-      oitPass.setVertexBuffer(2, this.bufferManager.get("classification"));
-      const pointsToDraw = this.bufferManager.get("points").size / 16;
-      oitPass.draw(pointsToDraw, 1);
-      oitPass.end();
+    this.bufferManager.write("grid_uniforms", vpMatrixBuffer, 0);
+    this.bufferManager.write("grid_uniforms", cameraPositionBuffer, 64);
 
-      // Composite pass (writes to swapchain)
-      const compositePass = commandEncoder.beginRenderPass(this.compositePassDescriptor);
-      compositePass.setPipeline(this.pipelineManager.get("oit-composite")); // full-screen triangle
-      compositePass.setBindGroup(0, this.bindGroupManager.getGroup("oit-composite")); // uses accum + reveal as input
-      compositePass.draw(6);
-      compositePass.end();
-    }
+    this.gridPassDescriptor.colorAttachments[0].view = swapchainView;
 
+    const gridPass: GPURenderPassEncoder = commandEncoder.beginRenderPass(this.gridPassDescriptor);
+    gridPass.setPipeline(this.pipelineManager.get<GPURenderPipeline>("render-grid"));
+    gridPass.setBindGroup(0, this.bindGroupManager.getGroup("grid"));
+    gridPass.draw(6);
+    gridPass.end();
+    // End: Render grid
+
+    // Begin: Render opaque
     const needsOpaquePass =
       plan.mesh ||
       plan.rays ||
       plan.nodes;
 
-
     if (needsOpaquePass) {
+      this.renderPassDescriptor.colorAttachments[0].view = swapchainTexture.createView();
+      this.renderPassDescriptor.depthStencilAttachment!.view = this.depthView;
+
       const renderPass = commandEncoder.beginRenderPass(this.renderPassDescriptor);
 
       if (plan.mesh) {
@@ -641,18 +743,37 @@ export class Viewport {
 
       renderPass.end();
     }
+    // End: Render opaque
 
-    const gizmoPassDesc: GPURenderPassDescriptor = {
-      label: 'pass-gizmo',
-      colorAttachments: [
-        {
-          view: swapchainView,
-          loadOp: "load", // preserve composite result
-          storeOp: "store",
-        }
-      ]
-    };
+    // Begin: Render transparent
+    if (plan.transparent) {
+      // Transparent pass (accum + revealage targets)
+      this.transparentPassDescriptor.colorAttachments[0].view = this.accumTexture.createView();
+      this.transparentPassDescriptor.colorAttachments[1].view = this.revealageTexture.createView();
+      this.transparentPassDescriptor.depthStencilAttachment!.view = this.depthView;
+      this.compositePassDescriptor.colorAttachments[0].view = swapchainView;
 
+      const oitPass = commandEncoder.beginRenderPass(this.transparentPassDescriptor);
+      oitPass.setPipeline(this.pipelineManager.get<GPURenderPipeline>("transparent"));
+      oitPass.setBindGroup(0, this.bindGroupManager.getGroup("render"));
+      oitPass.setBindGroup(1, this.bindGroupManager.getGroup("points"));
+      oitPass.setVertexBuffer(0, this.bufferManager.get("points"));
+      oitPass.setVertexBuffer(1, this.bufferManager.get("colors"));
+      oitPass.setVertexBuffer(2, this.bufferManager.get("classification"));
+      const pointsToDraw = this.bufferManager.get("points").size / 16;
+      oitPass.draw(pointsToDraw, 1);
+      oitPass.end();
+
+      // Composite pass (writes to swapchain)
+      const compositePass = commandEncoder.beginRenderPass(this.compositePassDescriptor);
+      compositePass.setPipeline(this.pipelineManager.get("composite"));
+      compositePass.setBindGroup(0, this.bindGroupManager.getGroup("composite"));
+      compositePass.draw(6);
+      compositePass.end();
+    }
+    // End: Render transparent
+
+    // Begin: Render gizmo
     const { gmodel, gview, gprojection } = this.gizmo.getModelViewProjection(
       this.camera, this.canvas.width, this.canvas.height);
 
@@ -660,12 +781,15 @@ export class Viewport {
     this.bufferManager.write("gizmo_uniforms", gview, 64);
     this.bufferManager.write("gizmo_uniforms", gprojection, 128);
 
-    const gizmoPass: GPURenderPassEncoder = commandEncoder.beginRenderPass(gizmoPassDesc);
+    this.gizmoPassDescriptor.colorAttachments[0].view = swapchainView;
+
+    const gizmoPass: GPURenderPassEncoder = commandEncoder.beginRenderPass(this.gizmoPassDescriptor);
     gizmoPass.setPipeline(this.pipelineManager.get<GPURenderPipeline>("render-gizmo"));
     gizmoPass.setBindGroup(0, this.bindGroupManager.getGroup("gizmo"));
     gizmoPass.setVertexBuffer(0, this.bufferManager.get("gizmo_vertices"));
     gizmoPass.draw(6);
     gizmoPass.end();
+    // End: Render gizmo
 
     // Submit everything
     this.device.queue.submit([commandEncoder.finish()]);

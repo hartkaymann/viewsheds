@@ -6,7 +6,6 @@ struct Uniforms {
     projectionMatrix: mat4x4f,
 };
 
-
 @group(0) @binding(2) var<storage, read> pointVisibilityBuffer: array<u32>;
 @group(0) @binding(4) var<uniform> uniforms: Uniforms;
 @group(1) @binding(0) var<uniform> renderMode: u32;  
@@ -74,7 +73,7 @@ fn main(
 
 struct FragmentOutput {
     @location(0) accumColor: vec4f,
-    @location(1) revealage: vec4f,
+    @location(1) revealage: f32,
     }
 
 @fragment
@@ -85,7 +84,7 @@ fn main_fs(in: VertexOutput) -> FragmentOutput {
     let a = in.color.a;
 
     output.accumColor = vec4f(c * a, a);
-    output.revealage = vec4f(1.0 - a);
+    output.revealage = 1.0 - a;
 
     return output;
 }

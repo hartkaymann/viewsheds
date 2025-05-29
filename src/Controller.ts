@@ -42,7 +42,7 @@ export class Controller {
     renderSettings: RenderSettings =  {
         points: true,
         mesh: false,
-        nodes: true,
+        nodes: false,
         rays: true
     };
 
