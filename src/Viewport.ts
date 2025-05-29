@@ -159,7 +159,7 @@ export class Viewport {
     });
 
     this.bindGroupManager.createLayout({
-      name: "oit-composite",
+      name: "composite",
       entries: [
         { binding: 0, visibility: GPUShaderStage.FRAGMENT, sampler: { type: "filtering" } },
         { binding: 1, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float" } },
@@ -274,7 +274,7 @@ export class Viewport {
     });
     const pipeline_layout_composite = this.device.createPipelineLayout({
       label: 'pipeline-layout-composite',
-      bindGroupLayouts: this.bindGroupManager.getLayouts(["oit-composite"])
+      bindGroupLayouts: this.bindGroupManager.getLayouts(["composite"])
     });
 
     this.pipelineManager.create({
@@ -444,7 +444,7 @@ export class Viewport {
     });
 
     this.pipelineManager.create({
-      name: "oit-points-transparent",
+      name: "transparent",
       type: "render",
       layout: pipeline_layout_points,
       code: points_src,
@@ -525,7 +525,7 @@ export class Viewport {
     });
 
     this.pipelineManager.create({
-      name: "oit-composite",
+      name: "composite",
       type: "render",
       layout: pipeline_layout_composite,
       code: composite_src,
@@ -654,10 +654,10 @@ export class Viewport {
       usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
     });
 
-    if (!this.bindGroupManager.getGroup("oit-composite"))
+    if (!this.bindGroupManager.getGroup("composite"))
       return;
 
-    this.bindGroupManager.updateGroup("oit-composite", [
+    this.bindGroupManager.updateGroup("composite", [
       { binding: 1, resource: this.accumTexture.createView() },
       { binding: 2, resource: this.revealageTexture.createView() },
     ]);
