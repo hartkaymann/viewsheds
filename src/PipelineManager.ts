@@ -30,7 +30,7 @@ export class PipelineManager {
         this.device = device;
     }
 
-    create(config: PipelineConfig): void {
+    create(config: PipelineConfig): GPUPipelineBase {
         const processedCode = config.codeConstants
             ? this.applyShaderConstants(config.code, config.codeConstants)
             : config.code;
@@ -67,6 +67,8 @@ export class PipelineManager {
         pipeline.label = `pipeline-${config.name}`;
         this.pipelines.set(config.name, pipeline);
         this.pipelineConfigs.set(config.name, config);
+
+        return pipeline;
     }
 
     applyShaderConstants(shaderSrc: string, constants: Record<string, string | number>): string {

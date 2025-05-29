@@ -150,7 +150,7 @@ export class Viewport {
     });
 
     this.bindGroupManager.createLayout({
-      name: "composite",
+      name: "oit-composite",
       entries: [
         { binding: 0, visibility: GPUShaderStage.FRAGMENT, sampler: { type: "filtering" } },
         { binding: 1, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float" } },
@@ -214,8 +214,8 @@ export class Viewport {
     });
 
     this.bindGroupManager.createGroup({
-      name: "composite",
-      layoutName: "composite",
+      name: "oit-composite",
+      layoutName: "oit-composite",
       entries: [
         {
           binding: 0, resource: this.device.createSampler({
@@ -247,7 +247,7 @@ export class Viewport {
     });
     const pipeline_layout_composite = this.device.createPipelineLayout({
       label: 'pipeline-layout-composite',
-      bindGroupLayouts: this.bindGroupManager.getLayouts(["composite"])
+      bindGroupLayouts: this.bindGroupManager.getLayouts(["oit-composite"])
     });
 
     this.pipelineManager.create({
@@ -377,7 +377,7 @@ export class Viewport {
     });
 
     this.pipelineManager.create({
-      name: "transparent",
+      name: "oit-points-transparent",
       type: "render",
       layout: pipeline_layout_points,
       code: points_src,
@@ -457,7 +457,7 @@ export class Viewport {
     });
 
     this.pipelineManager.create({
-      name: "composite",
+      name: "oit-composite",
       type: "render",
       layout: pipeline_layout_composite,
       code: composite_src,
@@ -545,10 +545,10 @@ export class Viewport {
       usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
     });
 
-    if (!this.bindGroupManager.getGroup("composite"))
+    if (!this.bindGroupManager.getGroup("oit-composite"))
       return;
 
-    this.bindGroupManager.updateGroup("composite", [
+    this.bindGroupManager.updateGroup("oit-composite", [
       { binding: 1, resource: this.accumTexture.createView() },
       { binding: 2, resource: this.revealageTexture.createView() },
     ]);
@@ -590,7 +590,7 @@ export class Viewport {
       this.transparentPassDescriptor.depthStencilAttachment!.view = this.depthView;
 
       const oitPass = commandEncoder.beginRenderPass(this.transparentPassDescriptor);
-      oitPass.setPipeline(this.pipelineManager.get<GPURenderPipeline>("transparent"));
+      oitPass.setPipeline(this.pipelineManager.get<GPURenderPipeline>("oit-points-transparent"));
       oitPass.setBindGroup(0, this.bindGroupManager.getGroup("render"));
       oitPass.setBindGroup(1, this.bindGroupManager.getGroup("points"));
       oitPass.setVertexBuffer(0, this.bufferManager.get("points"));
@@ -602,8 +602,8 @@ export class Viewport {
 
       // Composite pass (writes to swapchain)
       const compositePass = commandEncoder.beginRenderPass(this.compositePassDescriptor);
-      compositePass.setPipeline(this.pipelineManager.get("composite")); // full-screen triangle
-      compositePass.setBindGroup(0, this.bindGroupManager.getGroup("composite")); // uses accum + reveal as input
+      compositePass.setPipeline(this.pipelineManager.get("oit-composite")); // full-screen triangle
+      compositePass.setBindGroup(0, this.bindGroupManager.getGroup("oit-composite")); // uses accum + reveal as input
       compositePass.draw(6);
       compositePass.end();
     }
