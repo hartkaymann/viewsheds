@@ -73,7 +73,7 @@ self.onmessage = async (e) => {
                 const tree = await createQuadtree(points, bounds, depth);
 
                 if (shouldShutdown) return;
-                postMessage({ type: "tree-built", tree: tree.flatten() });
+                postMessage({ type: "tree-built", tree: tree.flattenProfiled() });
 
                 const result = performTriangulation(points, tree);
 
@@ -344,7 +344,7 @@ function sortPointCloud(
 } {
     const bounds = calculateBounds(points);
     const sorter = new MortonSorter();
-    const { sortedPoints, sortedIndices } = sorter.sort(points, bounds);
+    const { sortedPoints, sortedIndices } = sorter.sortProfiled(points, bounds);
     const sortedColors = reorderFromSortedIndices(colors, sortedIndices, 4);
     const sortedClassification = reorderFromSortedIndices(classification, sortedIndices, 1);
     return { points: sortedPoints, colors: sortedColors, classification: sortedClassification, bounds };
@@ -374,7 +374,7 @@ function createQuadtree(points: Float32Array, bounds: Bounds, depth: number): Qu
         ),
     }, depth);
 
-    tree.assignPoints(points);
+    tree.assignPointsProfiled(points);
 
     return tree;
 }
@@ -399,13 +399,13 @@ function performTriangulation(
     const triangleCount = indices.length / 3;
 
     const globalTriangleIndexBuffer: number[] = [];
-    tree.assignTriangles(indices, points, globalTriangleIndexBuffer);
+    tree.assignTrianglesProfiled(indices, points, globalTriangleIndexBuffer);
     const nodeToTriangles = new Uint32Array(globalTriangleIndexBuffer);
 
     return {
         indices,
         triangleCount,
-        treeData: tree.flatten(),
+        treeData: tree.flattenProfiled(),
         nodeToTriangles,
     };
 

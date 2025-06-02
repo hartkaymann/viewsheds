@@ -25,7 +25,26 @@ export class Profiler {
         this.gpuMemoryMax = device.limits.maxStorageBufferBindingSize;
         this.canTimestamp = device.features.has("timestamp-query");
     }
+    
+    // Profile CPU
+    static profile<T>(label: string, fn: () => T): T {
+        const start = performance.now();
+        const result = fn();
+        const end = performance.now();
+        console.log(`[Profile] ${label}: ${(end - start).toFixed(2)} ms`);
+        return result;
+    }
 
+    // Profile CPU async
+    static async profileAsync<T>(label: string, fn: () => Promise<T>): Promise<T> {
+        const start = performance.now();
+        const result = await fn();
+        const end = performance.now();
+        console.log(`[Profile] ${label}: ${(end - start).toFixed(2)} ms`);
+        return result;
+    }
+
+    // Profile GPU
     setBufferManager(manager: BufferManager) {
         this.bufferManager = manager;
 
@@ -179,4 +198,5 @@ export class Profiler {
 
         tableBody.innerHTML = rows;
     }
+
 } 

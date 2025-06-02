@@ -1,5 +1,6 @@
 import { vec2, vec3 } from "gl-matrix";
 import { AABB, Bounds } from "./types/types";
+import { Profiler } from "./Profiler";
 
 class QuadTreeNode {
     children: QuadTreeNode[] | null;
@@ -236,22 +237,34 @@ export class QuadTree {
         this.root = new QuadTreeNode(bounds, depth);
     }
 
+    assignPointsProfiled(sortedPoints: Float32Array): void {
+        return Profiler.profile("assignPoints", () => this.assignPoints(sortedPoints));
+    }
     assignPoints(sortedPoints: Float32Array): void {
         const pointSize = 4; // (x, y, z, w)
         this.root.assignPoints(sortedPoints, 0, sortedPoints.length / pointSize);
         this.dirty = true;
     }
 
+    assignIndicesProfiled(): void {
+        return Profiler.profile("assignIndices", () => this.assignIndices());
+    }
     assignIndices() {
         this.root.assignIndicesBreadthFirst();
         this.dirty = true;
     }
 
+    assignTrianglesProfiled(triangles: Uint32Array, points: Float32Array, globalTriangleIndexBuffer: number[]): void {
+        return Profiler.profile("assignTriangles", () => this.assignTriangles(triangles, points, globalTriangleIndexBuffer));
+    }
     assignTriangles(triangles: Uint32Array, points: Float32Array, globalTriangleIndexBuffer: number[]): void {
         this.root.assignTriangles(triangles, points, globalTriangleIndexBuffer);
         this.dirty = true;
     }
 
+    flattenProfiled(): ArrayBuffer {
+        return Profiler.profile("flatten Quadtree", () => this.flatten());
+    }
     flatten(): ArrayBuffer {
         if (this.flat && !this.dirty)
             return this.flat;
@@ -288,6 +301,9 @@ export class QuadTree {
         return buffer;
     }
 
+    mapPointsToNodesProfiled(): Uint32Array {
+        return Profiler.profile("mapPointsToNodes", () => this.mapPointsToNodes());
+    }
     mapPointsToNodes = (): Uint32Array => {
         const pointToNodeBuffer = new Uint32Array(this.root.pointCount); // One index per point
 
@@ -302,6 +318,9 @@ export class QuadTree {
         return pointToNodeBuffer;
     };
 
+    static reconstructProfiled(buffer: ArrayBuffer, depth: number): QuadTree {
+        return Profiler.profile("reconstruct Quadtree", () => this.reconstruct(buffer, depth));
+    }
     static reconstruct(buffer: ArrayBuffer, depth: number): QuadTree {
         const floatView = new Float32Array(buffer);
         const intView = new Uint32Array(buffer);
@@ -322,7 +341,7 @@ export class QuadTree {
         const bounds = { pos, size };
         const tree = new QuadTree(bounds, depth);
         tree.flat = buffer;
-        tree.assignIndices();
+        tree.assignIndicesProfiled();
 
         tree.root.traverse(node => {
             const i = node.index;
@@ -367,6 +386,12 @@ export class MortonSorter {
 
     constructor() { }
 
+    sortProfiled(points: Float32Array, bounds: Bounds): {
+        sortedPoints: Float32Array,
+        sortedIndices: Uint32Array
+    } {
+        return Profiler.profile("sortPoints", () => this.sort(points, bounds));
+    }
     sort(points: Float32Array, bounds: Bounds): {
         sortedPoints: Float32Array,
         sortedIndices: Uint32Array

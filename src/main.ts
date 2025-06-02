@@ -80,7 +80,7 @@ async function main() {
             },
 
             onTreeBuilt: (treeData) => {
-                controller.scene.tree = QuadTree.reconstruct(treeData, treeDepth);
+                controller.scene.tree = QuadTree.reconstructProfiled(treeData, treeDepth);
                 controller.setNodeData().then(() => {
                     uiController.setRunNodesButtonDisabled(false);
                 });;
@@ -89,7 +89,7 @@ async function main() {
             onTriangulationDone: ({ indices, triangleCount, treeData, nodeToTriangles }) => {
                 controller.scene.indices = indices;
                 controller.scene.triangleCount = triangleCount;
-                controller.scene.tree = QuadTree.reconstruct(treeData, treeDepth);
+                controller.scene.tree = QuadTree.reconstructProfiled(treeData, treeDepth);
                 controller.scene.nodeToTriangles = nodeToTriangles;
 
                 controller.setNodeData(false);

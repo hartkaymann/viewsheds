@@ -47,7 +47,7 @@ export class SceneSyncer {
     }
 
     this.bufferManager.write("nodes", this.scene.tree.flatten());
-    this.bufferManager.write("point_to_node", this.scene.tree.mapPointsToNodes());
+    this.bufferManager.write("point_to_node", this.scene.tree.mapPointsToNodesProfiled());
 
   }
 
