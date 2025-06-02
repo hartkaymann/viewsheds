@@ -643,12 +643,14 @@ export class Viewport {
 
   private createOITTextures(width: number, height: number) {
     this.accumTexture = this.device.createTexture({
+      label: "accum-texture",
       size: [width, height],
       format: "rgba16float",
       usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
     });
 
     this.revealageTexture = this.device.createTexture({
+      label: "revealage-texture",
       size: [width, height],
       format: "r16float",
       usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
@@ -665,6 +667,7 @@ export class Viewport {
 
   private createDepthTexture(width: number, height: number) {
     this.depthTexture = this.device.createTexture({
+      label: "depth-texture",
       size: [width, height],
       format: 'depth24plus',
       usage: GPUTextureUsage.RENDER_ATTACHMENT,
@@ -699,6 +702,7 @@ export class Viewport {
     this.bufferManager.write("grid_uniforms", cameraPositionBuffer, 64);
 
     this.gridPassDescriptor.colorAttachments[0].view = swapchainView;
+    this.gridPassDescriptor.depthStencilAttachment!.view = this.depthView;
 
     const gridPass: GPURenderPassEncoder = commandEncoder.beginRenderPass(this.gridPassDescriptor);
     gridPass.setPipeline(this.pipelineManager.get<GPURenderPipeline>("render-grid"));
@@ -714,7 +718,7 @@ export class Viewport {
       plan.nodes;
 
     if (needsOpaquePass) {
-      this.renderPassDescriptor.colorAttachments[0].view = swapchainTexture.createView();
+      this.renderPassDescriptor.colorAttachments[0].view = swapchainView;
       this.renderPassDescriptor.depthStencilAttachment!.view = this.depthView;
 
       const renderPass = commandEncoder.beginRenderPass(this.renderPassDescriptor);

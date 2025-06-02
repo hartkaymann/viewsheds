@@ -42,6 +42,7 @@ export class PipelineManager {
 
         const pipeline = config.type === "compute"
             ? this.device.createComputePipeline({
+                label: `pipeline-${config.name}`,
                 layout: config.layout,
                 compute: {
                     module,
@@ -50,6 +51,7 @@ export class PipelineManager {
                 },
             })
             : this.device.createRenderPipeline({
+                label: `pipeline-${config.name}`,
                 layout: config.layout,
                 vertex: {
                     ...config.render!.vertex,

@@ -15,7 +15,7 @@ const indices = array<u32, 6>(0, 2, 1, 2, 0, 3);
 
 const gridSize = 10000.0;
 const gridMinPixelsBetweenCells = 4.0;
-const gridCellSize = 20.0;
+const gridCellSize = 40.0;
 const gridColorThin = vec4(0.6, 0.6, 0.6, 0.5);
 const gridColorThick = vec4(0.8, 0.8, 0.8, 1.0);
 
