@@ -77,7 +77,6 @@ export class Controller {
     }
 
     async init() {
-
         this.bufferManager.initBuffers([
             {
                 name: "points",

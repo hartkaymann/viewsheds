@@ -10,6 +10,7 @@ import { Utils } from "./Utils";
 import { UIController } from "./ui/UIController ";
 import { Controller } from "./Controller";
 import { SceneSyncer } from "./SceneSyncer";
+import { WorkspaceManager } from "./ui/WorkspaceManager";
 
 declare global {
     interface Window {
@@ -55,6 +56,9 @@ async function main() {
     const controller = new Controller(device)
     await controller.init();
     controller.start();
+
+    const workspaceManager = new WorkspaceManager(controller);
+    await workspaceManager.init();
 
     const uiController = new UIController(controller);
     await uiController.init();
