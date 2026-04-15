@@ -21,5 +21,6 @@ export class WorkspaceManager {
             }
         });        
         document.getElementById(workspaceId)?.classList.add("active");
+
     }
 }

@@ -11,7 +11,7 @@
   "devDependencies": {
     "@types/jquery": "^3.5.29",
     "@types/node": "^22.13.5",
-    "@webgpu/types": "^0.1.40",
+    "@webgpu/types": "^0.1.69",
     "typescript": "^5.2.2",
     "vite": "^5.4.16",
     "vite-raw-plugin": "^1.0.2"

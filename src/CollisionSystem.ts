@@ -212,6 +212,7 @@ export class CollisionSystem {
     this.profiler.registerTimer("nodes-sort");
     this.profiler.registerTimer("collision");
   }
+  
   async runNodeCollision(sort: boolean = true, useProfiler: boolean = true) {
     this.bufferManager.clear("ray_nodes");
     this.bufferManager.clear("debug_distance");
@@ -235,8 +236,8 @@ export class CollisionSystem {
       const encoderSort: GPUCommandEncoder = this.device.createCommandEncoder();
       const passSort = useProfiler
         ? this.profiler.beginComputePass("nodes-sort", encoderSort)
-        : encoderSort.beginComputePass(); this.computebitonicSort(passSort);
-
+        : encoderSort.beginComputePass(); 
+        
       this.computebitonicSort(passSort);
       passSort.end();
 

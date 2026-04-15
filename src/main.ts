@@ -66,7 +66,7 @@ async function main() {
 
     let sceneLoader = setupSceneLoader();
 
-    const treeDepth = 8; // Don't set above 8! 
+    const treeDepth = 6; // Don't set above 8! 
 
     function setupSceneLoader(): SceneLoader {
         const newLoader = new SceneLoader(SceneWorker);
