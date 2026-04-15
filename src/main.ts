@@ -10,6 +10,7 @@ import { Utils } from "./Utils";
 import { UIController } from "./ui/UIController ";
 import { Controller } from "./Controller";
 import { SceneSyncer } from "./SceneSyncer";
+import { WorkspaceManager } from "./ui/WorkspaceManager";
 
 declare global {
     interface Window {
@@ -56,13 +57,16 @@ async function main() {
     await controller.init();
     controller.start();
 
+    const workspaceManager = new WorkspaceManager(controller);
+    await workspaceManager.init();
+
     const uiController = new UIController(controller);
     await uiController.init();
     controller.ui = uiController;
 
     let sceneLoader = setupSceneLoader();
 
-    const treeDepth = 8; // Don't set above 8! 
+    const treeDepth = 6; // Don't set above 8! 
 
     function setupSceneLoader(): SceneLoader {
         const newLoader = new SceneLoader(SceneWorker);

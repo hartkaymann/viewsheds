@@ -92,9 +92,14 @@ export class UIController {
         const sortNodesCheckbox = <HTMLInputElement>document.getElementById("sortNodes");
         const sortNodes = sortNodesCheckbox.checked;
 
-        this.collision.runNodeCollision(sortNodes);
-
-        Utils.copyAndDisplayRayDebugData(this.controller.device, this.controller.bufferManager, this.controller.scene.rays.samples, this.controller.scene.tree.depth);
+        this.collision.runNodeCollision(sortNodes)
+            .then(() => Utils.copyAndDisplayRayDebugData(
+                this.controller.device,
+                this.controller.bufferManager,
+                this.controller.scene.rays.samples,
+                this.controller.scene.tree.depth
+            ))
+            .catch((err) => console.error("Node collision debug readback failed:", err));
     }
 
     handleRunPointCollision() {

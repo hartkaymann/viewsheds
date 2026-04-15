@@ -29,7 +29,6 @@ export class Utils {
             usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
         });
 
-
         const encoder = device.createCommandEncoder();
 
         encoder.copyBufferToBuffer(srcDistanceBuffer, 0, dstDistanceBuffer, 0, bufferSize);
