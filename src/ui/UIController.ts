@@ -29,6 +29,7 @@ export class UIController {
         document.getElementById("renderMesh")?.addEventListener("change", this.handleRenderMeshChanged.bind(this));
         document.getElementById("renderRays")?.addEventListener("change", this.handleRenderRaysChanged.bind(this));
         document.getElementById("renderNodes")?.addEventListener("change", this.handleRenderNodesChanged.bind(this));
+        document.getElementById("renderGrid")?.addEventListener("change", this.handleRenderGridChanged.bind(this));
 
         await this.handleUpdateRaySamples();
         await this.handleUpdateRayOrigin();
@@ -38,6 +39,7 @@ export class UIController {
         this.handleRenderMeshChanged();
         this.handleRenderRaysChanged();
         this.handleRenderNodesChanged();
+        this.handleRenderGridChanged();
     }
 
     async handleUpdateRaySamples() {
@@ -67,6 +69,16 @@ export class UIController {
         await this.collision.runGenerateRays();
     }
 
+    updateOriginInputs(origin: [number, number, number]) {
+        const originXInput = document.getElementById("originX") as HTMLInputElement;
+        const originYInput = document.getElementById("originY") as HTMLInputElement;
+        const originZInput = document.getElementById("originZ") as HTMLInputElement;
+
+        if (originXInput) originXInput.value = origin[0].toFixed(1);
+        if (originYInput) originYInput.value = origin[1].toFixed(1);
+        if (originZInput) originZInput.value = origin[2].toFixed(1);
+    }
+
     updateThetaPhiInputs(theta: [number, number], phi: [number, number]) {
         const startThetaInput = document.getElementById("startTheta") as HTMLInputElement;
         const endThetaInput = document.getElementById("endTheta") as HTMLInputElement;
@@ -89,10 +101,7 @@ export class UIController {
     }
 
     handleNodeCollision() {
-        const sortNodesCheckbox = <HTMLInputElement>document.getElementById("sortNodes");
-        const sortNodes = sortNodesCheckbox.checked;
-
-        this.collision.runNodeCollision(sortNodes)
+        this.collision.runNodeCollision()
             .then(() => Utils.copyAndDisplayRayDebugData(
                 this.controller.device,
                 this.controller.bufferManager,
@@ -145,6 +154,11 @@ export class UIController {
         const renderRaysCheckbox = <HTMLInputElement>document.getElementById("renderRays");
         const renderRays = renderRaysCheckbox.checked;
         this.controller.renderSettings.rays = renderRays;
+    }
+
+    handleRenderGridChanged() {
+        const renderGridCheckbox = <HTMLInputElement>document.getElementById("renderGrid");
+        this.controller.renderSettings.grid = renderGridCheckbox.checked;
     }
 
     setRayInputsDisabled(disabled: boolean) {

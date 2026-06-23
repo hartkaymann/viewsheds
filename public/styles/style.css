@@ -12,11 +12,14 @@ body {
 
 /* Main horizontal layout */
 #main-layout {
+  display: flex;
+  flex-direction: column;
   height: 100vh;
   width: 100vw;
   box-sizing: border-box;
   overflow: hidden;
   padding: 2px;
+  gap: 2px;
 }
 
 .workspace.active {
@@ -26,23 +29,27 @@ body {
 
 .workspace {
   display: none;
-  height: 100%;
+  flex: 1 1 auto;
+  min-height: 0;
   width: 100%;
 }
 
 #toolbar {
-  height: 32px;
+  flex: 0 0 32px;
+  height: content;
   width: 100%;
   background-color: #262626;
   color: #eee;
   display: flex;
   align-items: center;
-  padding: 0 8px;
+  padding: 0.25em;
   box-sizing: border-box;
   font-family: monospace;
+  gap: 0.25em;
+  border-radius: 0.5em;
 }
 
-#toolbar-button {
+.toolbar-button {
   background-color: #444;
   color: #eee;
   border: 1px solid #666;
@@ -54,12 +61,53 @@ body {
   transition: background-color 0.2s ease;
 }
 
+.toolbar-button:hover {
+  background-color: #555;
+}
+
+.toolbar-button.active {
+  background-color: #666;
+  border-color: #888;
+}
+
 .panel {
   box-sizing: border-box;
   overflow: auto;
   background-color: #2e2e2e;
   border: 1px solid #2c2c2c;
   border-radius: 0.5em;
+}
+
+#info-panel {
+  flex: 1 1 auto;
+  color: #eee;
+  font-family: monospace;
+  padding: 1.5em 2em;
+}
+
+#info-panel p,
+#info-panel li {
+  max-width: 70ch;
+  line-height: 1.5;
+}
+
+#info-panel .how-to {
+  padding-left: 1.2em;
+}
+
+#info-panel .how-to li {
+  margin-bottom: 0.6em;
+}
+
+/* Load workspace: center the import card both axes */
+#load-panel {
+  flex: 1 1 auto;
+  color: #eee;
+  font-family: monospace;
+  padding: 1em;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 #left-panel {
@@ -91,6 +139,19 @@ canvas#gfx-main {
 #fps-counter {
   position: absolute;
   top: 4px;
+  left: 4px;
+  background: rgba(0, 0, 0, 0.6);
+  color: #eee;
+  font-size: 12px;
+  font-family: monospace;
+  padding: 2px 4px;
+  pointer-events: none;
+  z-index: 10;
+}
+
+#mouse-coords {
+  position: absolute;
+  top: 24px;
   left: 4px;
   background: rgba(0, 0, 0, 0.6);
   color: #eee;
@@ -235,6 +296,89 @@ button:hover:enabled {
 button:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+/* Import controls (Load workspace) — centered card */
+#import-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75em;
+  width: 100%;
+  max-width: 480px;
+  padding: 1.5em;
+  background-color: #262626;
+  border: 1px solid #3a3a3a;
+  border-radius: 0.75em;
+}
+
+#import-controls h2 {
+  margin: 0 0 0.25em;
+  font-size: 1.1em;
+  font-weight: normal;
+}
+
+#import-controls .controls-container {
+  border-bottom: none;
+  border-radius: 0.5em;
+  border: 1px solid #3a3a3a;
+}
+
+.file-info {
+  font-family: monospace;
+  font-size: 0.9em;
+  color: #eee;
+}
+
+.file-info:empty {
+  display: none;
+}
+
+.file-info-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 1em;
+  padding: 0.3em 0.5em;
+  border-bottom: 1px solid #3a3a3a;
+}
+
+.file-info-row span:first-child {
+  color: #999;
+}
+
+.progress-wrapper {
+  font-family: monospace;
+  font-size: 0.85em;
+  color: #eee;
+  flex-direction: column;
+  gap: 0.6em;
+}
+
+.progress-label {
+  margin-bottom: 0.3em;
+}
+
+.progress {
+  width: 100%;
+  height: 14px;
+  background-color: #1a1a1a;
+  border: 1px solid #3a3a3a;
+  border-radius: 0.4em;
+  overflow: hidden;
+}
+
+.progress-bar {
+  height: 100%;
+  width: 0%;
+  background-color: #036afe;
+  transition: width 0.15s linear;
+}
+
+.progress-bar.complete {
+  background-color: #3ba55d;
+}
+
+#confirm-load {
+  align-self: flex-start;
 }
 
 #profiler-panel {

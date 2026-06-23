@@ -17,12 +17,13 @@
   <div id="main-layout">
 
     <div id="toolbar">
+      <button id="info-button" class="toolbar-button active">Info</button>
       <button id="load-button" class="toolbar-button">Load</button>
       <button id="process-button" class="toolbar-button">Process</button>
     </div>
 
-    <div class="workspace active" id="workspace-load" >
-      <div class="panel" id="load-panel">
+    <div class="workspace active" id="workspace-info">
+      <div class="panel" id="info-panel">
         <h1>Viewshed</h1>
         <p>
           This tool visualizes the viewshed from a given point in a LiDAR point cloud.
@@ -32,6 +33,35 @@
         <p>
           <strong>Note:</strong> WebGPU is required for this tool to function. Ensure your browser supports it.
         </p>
+
+        <h2>How to use</h2>
+        <ol class="how-to">
+          <li>Go to the <strong>Load</strong> tab, choose a <code>.laz</code>/<code>.las</code> file, and confirm the load.</li>
+          <li>Switch to the <strong>Process</strong> tab; position the rays and set the
+            sample counts &mdash; for panorama scans use higher Y-sample counts (e.g. 256-1024) while keeping the X-sample counts low.</li>
+          <li>Loading continues in the background. Once all loading work has finished, you can run the
+            collision passes or a full panorama scan.</li>
+        </ol>
+      </div>
+    </div>
+
+    <div class="workspace" id="workspace-load">
+      <div class="panel" id="load-panel">
+        <div id="import-controls">
+          <h2>Load point cloud</h2>
+
+          <div class="controls-container">
+            <label for="file-input">Load File:</label>
+            <input type="file" id="file-input" accept=".laz,.las" />
+            <button id="clear-cache">Clear Cache</button>
+          </div>
+
+          <div id="file-info" class="file-info"></div>
+
+          <div id="import-progress" class="progress-wrapper" style="display: none;"></div>
+
+          <button id="confirm-load" disabled>Confirm load</button>
+        </div>
       </div>
     </div>
 
@@ -46,18 +76,13 @@
           </div>
           <canvas id="gfx-main"></canvas>
           <div id="fps-counter">fps: <span id="fps"></span></div>
+          <div id="mouse-coords">x: -- &middot; y: 0 &middot; z: --</div>
         </div>
         <div id="debug-table-container" class="panel debug-table-container"></div>
       </div>
 
       <div id="right-panel">
         <div class="panel" id="controls-panel">
-          <div class="controls-container">
-            <label for="file-input">Load File:</label>
-            <input type="file" id="file-input" accept=".laz,.las" />
-            <button id="clear-cache">Clear Cache</button>
-          </div>
-
           <div id="debug" class="debug-controls">
             <div class="input-group" id="raySampleInputs">
               <label>Samples X: <input type="number" id="samplesX" value="32" step="1" min="1" max="256"></label>
@@ -83,9 +108,6 @@
             <div class="input-group" id="actionGroup">
               <button id="runNodes" disabled>Run Nodes</button>
               <button id="runPoints" disabled>Run Points</button>
-              <div class="full-width">
-                <label><input type="checkbox" id="sortNodes" checked> Sort Nodes</label>
-              </div>
               <button id="clearPoints">Clear Points</button>
               <button id="runPanorama" disabled>Run Panorama</button>
             </div>
@@ -106,6 +128,7 @@
               <label><input type="checkbox" id="renderMesh"> Render Mesh</label>
               <label><input type="checkbox" id="renderRays" checked> Render Rays</label>
               <label><input type="checkbox" id="renderNodes"> Render Nodes</label>
+              <label><input type="checkbox" id="renderGrid" checked> Render Grid</label>
             </div>
           </div>
         </div>

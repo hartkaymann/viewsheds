@@ -6,7 +6,7 @@ import { QuadTree } from "./Optimization";
 import { PipelineManager } from "./PipelineManager";
 import { Scene } from "./Scene";
 import { SceneSyncer } from "./SceneSyncer";
-import { UIController } from "./ui/UIController ";
+import { UIController } from "./ui/UIController";
 import { Utils } from "./Utils";
 import { Viewport } from "./Viewport";
 
@@ -16,6 +16,7 @@ export interface RenderPlan {
     nodes: boolean;
     rays: boolean;
     gizmo: boolean;
+    grid: boolean;
 }
 
 export interface RenderSettings {
@@ -23,6 +24,7 @@ export interface RenderSettings {
     mesh: boolean;
     nodes: boolean;
     rays: boolean;
+    grid: boolean;
 }
 
 export class Controller {
@@ -43,7 +45,8 @@ export class Controller {
         points: true,
         mesh: false,
         nodes: false,
-        rays: true
+        rays: true,
+        grid: true
     };
 
     canRender = {
@@ -294,10 +297,29 @@ export class Controller {
             // Parameter useless right now
             const plan = this.getRenderPlanFor(this.viewports);
             this.viewports.runRenderPass(plan);
+
+            this.updateMouseCoords();
         }
 
         this.animationFrameId = requestAnimationFrame(this.render);
     };
+
+    private updateMouseCoords() {
+        const el = document.getElementById("mouse-coords");
+        if (!el) return;
+
+        const vp = this.viewports;
+        const rect = vp.canvas.getBoundingClientRect();
+        if (rect.width === 0 || rect.height === 0) return;
+
+        const ndcX = ((vp.input.lastMouseX - rect.left) / rect.width) * 2 - 1;
+        const ndcY = 1 - ((vp.input.lastMouseY - rect.top) / rect.height) * 2;
+
+        const ground = vp.camera.screenToGround(ndcX, ndcY);
+        el.textContent = ground
+            ? `x: ${ground[0].toFixed(1)} · y: 0 · z: ${ground[2].toFixed(1)}`
+            : "x: -- · y: 0 · z: --";
+    }
 
     async runPanoramaPass() {
         const startPhi = Math.PI / 3;
@@ -419,6 +441,7 @@ export class Controller {
             nodes: this.canRender.nodes && this.renderSettings.nodes,
             rays: this.canRender.rays && this.renderSettings.rays,
             gizmo: this.canRender.gizmo,
+            grid: this.renderSettings.grid,
         }
     }
 

@@ -154,6 +154,38 @@ export class Camera {
         this.updateView();
     }
 
+    /**
+     * Projects a point given in normalized device coordinates (x, y in [-1, 1],
+     * y up) onto the world ground plane (y = 0). Returns null when the ray is
+     * parallel to the plane or points away from it (e.g. aimed above horizon).
+     */
+    screenToGround(ndcX: number, ndcY: number): vec3 | null {
+        const viewProj = mat4.create();
+        mat4.multiply(viewProj, this.projectionMatrix, this.viewMatrix);
+        const invViewProj = mat4.create();
+        if (!mat4.invert(invViewProj, viewProj)) return null;
+
+        // Unproject near (z=0) and far (z=1) points; WebGPU clip space z is [0,1].
+        const near = vec3.fromValues(ndcX, ndcY, 0);
+        const far = vec3.fromValues(ndcX, ndcY, 1);
+        vec3.transformMat4(near, near, invViewProj);
+        vec3.transformMat4(far, far, invViewProj);
+
+        const dir = vec3.create();
+        vec3.subtract(dir, far, near);
+
+        if (Math.abs(dir[1]) < 1e-6) return null;
+
+        const t = -near[1] / dir[1];
+        if (t < 0) return null;
+
+        return vec3.fromValues(
+            near[0] + dir[0] * t,
+            0,
+            near[2] + dir[2] * t
+        );
+    }
+
     private updateVectors() {
         vec3.subtract(this.forward, this.target, this.position);
         vec3.normalize(this.forward, this.forward);

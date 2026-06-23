@@ -7,10 +7,11 @@ import { QuadTree } from "./Optimization";
 
 import SceneWorker from './workers/SceneWorker.ts?worker';
 import { Utils } from "./Utils";
-import { UIController } from "./ui/UIController ";
+import { UIController } from "./ui/UIController";
 import { Controller } from "./Controller";
 import { SceneSyncer } from "./SceneSyncer";
 import { WorkspaceManager } from "./ui/WorkspaceManager";
+import { ImportControls } from "./ui/ImportControls";
 
 declare global {
     interface Window {
@@ -64,13 +65,38 @@ async function main() {
     await uiController.init();
     controller.ui = uiController;
 
-    let sceneLoader = setupSceneLoader();
+    const importControls = new ImportControls();
 
-    const treeDepth = 6; // Don't set above 8! 
+    const sceneLoader = setupSceneLoader();
+
+    importControls.onFileSelected((file) => {
+        const reader = new FileReader();
+        reader.onload = () => {
+            sceneLoader.peekHeader(reader.result as ArrayBuffer, file.name);
+        };
+        reader.readAsArrayBuffer(file);
+    });
+
+    importControls.onConfirm(() => {
+        controller.scene.clear();
+        controller.reset();
+        importControls.setProgress("Loading points", 0);
+        sceneLoader.confirmLoad();
+    });
+
+    const treeDepth = 5; // Don't set above 8!
 
     function setupSceneLoader(): SceneLoader {
         const newLoader = new SceneLoader(SceneWorker);
         newLoader.setCallbacks({
+            onHeader: (summary) => {
+                importControls.showHeader(summary);
+            },
+
+            onProgress: (stage, value) => {
+                importControls.setProgress(stage, value);
+            },
+
             onPointsLoaded: ({ points, colors, classification, bounds }) => {
                 controller.scene.points = points;
                 controller.scene.colors = colors;
@@ -79,6 +105,17 @@ async function main() {
 
                 controller.viewports.focusCameraOnPointCloud();
                 controller.setPointData();
+
+                const origin: [number, number, number] = [
+                    (bounds.min.x + bounds.max.x) / 2,
+                    (bounds.min.y + bounds.max.y) + 10,
+                    (bounds.min.z + bounds.max.z) / 2,
+                ];
+                controller.updateRayOrigin(origin);
+                uiController.updateOriginInputs(origin);
+                uiController.handleUpdateRaySamples();
+
+                importControls.complete();
 
                 newLoader.startTreeBuild(points, bounds, treeDepth);
             },
@@ -103,37 +140,16 @@ async function main() {
                 });
 
                 console.log("Triangulation complete");
+            },
+
+            onError: (error) => {
+                console.error("Scene load failed:", error);
+                importControls.reset();
             }
         });
 
         return newLoader;
     }
-
-    const input = document.getElementById("file-input") as HTMLInputElement;
-    input.addEventListener("change", (event) => {
-        const file = input.files?.[0];
-        if (file) {
-            const reader = new FileReader();
-
-            reader.onload = () => {
-                const arrayBuffer = reader.result as ArrayBuffer;
-
-                sceneLoader.worker.postMessage({
-                    type: "load-arraybuffer",
-                    name: file.name,
-                    buffer: arrayBuffer
-                }, [arrayBuffer]);
-            };
-
-            controller.scene.clear();
-            controller.reset();
-
-            sceneLoader.shutdown();
-            sceneLoader = setupSceneLoader();
-
-            reader.readAsArrayBuffer(file);
-        }
-    });
 
     document.getElementById("clear-cache")?.addEventListener("click", () => {
         const dbName = "PointCloudCache";
@@ -155,16 +171,6 @@ async function main() {
         };
 
     });
-
-    const response = await fetch(`${import.meta.env.BASE_URL}model/files.json`);
-    const lazFiles = await response.json();
-    if (lazFiles.length === 0) {
-        console.warn('No .laz files found.');
-        return;
-    }
-    const url = new URL(`${import.meta.env.BASE_URL}model/${lazFiles[0]}`, location.origin).toString();;
-    console.log('First LAZ file URL:', url);
-    sceneLoader.worker.postMessage({ type: "load-url", url });
 }
 
 window.addEventListener("DOMContentLoaded", () => {
