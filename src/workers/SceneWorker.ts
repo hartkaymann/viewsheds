@@ -11,6 +11,14 @@ import Delaunator from "delaunator";
 
 let shouldShutdown = false;
 
+// Buffer peeked during "peek-header", reused on "confirm-load" so the full
+// file is only transferred to the worker once.
+let pending: { buffer: ArrayBuffer; sourceId: string } | null = null;
+
+function reportProgress(stage: string, value: number) {
+    postMessage({ type: "progress", stage, value });
+}
+
 const pointFormatReaders: Record<number, (dv: DataView) => {
     position: [number, number, number],
     intensity: number,
@@ -50,19 +58,33 @@ self.onmessage = async (e) => {
     const msg = e.data;
     try {
         switch (msg.type) {
-            case "load-url": {
-                const { url } = msg;
-                await handleLoadAndRespond(url, async () => {
-                    const response = await fetch(`${url}?nocache=${Date.now()}`);
-                    if (!response.ok) throw new Error(`Failed to load file: ${response.statusText}`);
-                    return response.arrayBuffer();
+            case "peek-header": {
+                const { name, buffer } = msg;
+                pending = { buffer, sourceId: name };
+                const header = parseHeader(buffer);
+                postMessage({
+                    type: "header",
+                    summary: {
+                        fileName: name,
+                        fileSize: buffer.byteLength,
+                        versionMajor: header.versionMajor,
+                        versionMinor: header.versionMinor,
+                        pointCount: header.pointCount,
+                        formatId: header.formatId,
+                        isCompressed: header.isCompressed,
+                        pointDataRecordLength: header.pointDataRecordLength,
+                        min: header.min,
+                        max: header.max,
+                    }
                 });
                 return;
             }
 
-            case "load-arraybuffer": {
-                const { name, buffer } = msg;
-                await handleLoadAndRespond(name, async () => buffer);
+            case "confirm-load": {
+                if (!pending) throw new Error("No file peeked to load.");
+                const { buffer, sourceId } = pending;
+                pending = null;
+                await handleLoadAndRespond(sourceId, async () => buffer);
                 return;
             }
 
@@ -70,12 +92,16 @@ self.onmessage = async (e) => {
                 if (shouldShutdown) return;
 
                 const { points, bounds, depth } = msg;
+                reportProgress("Building tree", 0);
                 const tree = await createQuadtree(points, bounds, depth);
+                reportProgress("Building tree", 1);
 
                 if (shouldShutdown) return;
                 postMessage({ type: "tree-built", tree: tree.flattenProfiled() });
 
+                reportProgress("Triangulating", 0);
                 const result = performTriangulation(points, tree);
+                reportProgress("Triangulating", 1);
 
                 if (shouldShutdown) return;
                 postMessage({ type: "triangulated", ...result });
@@ -103,23 +129,27 @@ async function handleLoadAndRespond(
     if (cached) {
         const bounds = calculateBounds(cached.points);
         if (shouldShutdown) return;
+        reportProgress("Loading points", 1);
         postMessage(
             { type: "loaded", ...cached, bounds },
-            [cached.points.buffer, cached.colors?.buffer, cached.classification?.buffer].filter(Boolean)
+            [cached.points.buffer, cached.colors.buffer, cached.classification.buffer]
         );
         return;
     }
 
     const buffer = await bufferProvider();
     const { points: rawPoints, colors: rawColors, classification: rawClassification } = await parseLASPoints(buffer);
+
+    reportProgress("Sorting", 0);
     const { points, colors, classification, bounds } = sortPointCloud(rawPoints, rawColors, rawClassification);
+    reportProgress("Sorting", 1);
 
     await storeInCache(sourceId, points, colors, classification);
 
     if (shouldShutdown) return;
     postMessage(
         { type: "loaded", points, colors, classification, bounds },
-        [points.buffer, colors?.buffer, classification?.buffer].filter(Boolean)
+        [points.buffer, colors.buffer, classification.buffer]
     );
 }
 
@@ -169,19 +199,13 @@ function loadFromCache(url: string): Promise<{
                     const points = new Float32Array(pointsBuf);
                     const numPoints = points.length / 4;
 
-                    // Fallback colors: white (1,1,1,1)
+                    // Fallback colors: opaque white. Colors are normalized to
+                    // 0..1 (see parseLASPoints), so fill with 1.0, not 255.
+                    // Only hit for legacy cache entries without a colors blob;
+                    // fresh loads always store a colors array.
                     const colors = colorsBuf
                         ? new Float32Array(colorsBuf)
-                        : (() => {
-                            const fallback = new Float32Array(numPoints * 4);
-                            for (let i = 0; i < numPoints; i++) {
-                                fallback[i * 4 + 0] = 255;
-                                fallback[i * 4 + 1] = 255;
-                                fallback[i * 4 + 2] = 255;
-                                fallback[i * 4 + 3] = 1;
-                            }
-                            return fallback;
-                        })();
+                        : new Float32Array(numPoints * 4).fill(1.0);
 
                     // Fallback classification: 0
                     const classification = classBuf
@@ -198,9 +222,9 @@ function loadFromCache(url: string): Promise<{
 }
 
 async function parseLASPoints(arrayBuffer: ArrayBuffer): Promise<{
-    points: Float32Array | null,
-    colors: Float32Array | null,
-    classification: Uint32Array | null
+    points: Float32Array,
+    colors: Float32Array,
+    classification: Uint32Array
 }> {
     const LazPerf = await createLazPerf({
         locateFile: () => lazPerfUrl
@@ -234,7 +258,14 @@ async function parseLASPoints(arrayBuffer: ArrayBuffer): Promise<{
         throw new Error(`Unsupported point format: ${formatId}`);
     }
 
+    let lastPercent = -1;
     for (let i = 0; i < pointCount; ++i) {
+        const percent = Math.floor((i / pointCount) * 100);
+        if (percent !== lastPercent) {
+            lastPercent = percent;
+            reportProgress("Loading points", i / pointCount);
+        }
+
         laszip.getPoint(dataPtr);
 
         const raw = LazPerf.HEAPU8.subarray(dataPtr, dataPtr + pointDataRecordLength);
@@ -258,6 +289,10 @@ async function parseLASPoints(arrayBuffer: ArrayBuffer): Promise<{
             const b = bRaw / 65535;
             const a = 1.0;
             colors.set([r, g, b, a], i * 4);
+        } else {
+            // Point format carries no color (e.g. formats 0/1) -> default to
+            // opaque white so the cloud is still visible in color mode.
+            colors.set([1.0, 1.0, 1.0, 1.0], i * 4);
         }
     }
 
@@ -414,7 +449,16 @@ function performTriangulation(
 function parseHeader(arrayBuffer: ArrayBuffer) {
     const view = new DataView(arrayBuffer);
 
-    const pointCount = view.getUint32(107, true);
+    const versionMajor = view.getUint8(24);
+    const versionMinor = view.getUint8(25);
+    const headerSize = view.getUint16(94, true);
+
+    // Legacy point count (offset 107). LAS 1.4 may store 0 here and keep the
+    // real count in the extended record at offset 247.
+    let pointCount = view.getUint32(107, true);
+    if (versionMinor >= 4 && pointCount === 0) {
+        pointCount = Number(view.getBigUint64(247, true));
+    }
     const pointDataRecordLength = view.getUint16(105, true);
     const pointDataRecordFormat = view.getUint8(104);
 
@@ -446,6 +490,9 @@ function parseHeader(arrayBuffer: ArrayBuffer) {
     ]
 
     return {
+        versionMajor,
+        versionMinor,
+        headerSize,
         pointCount,
         pointDataRecordLength,
         formatId,

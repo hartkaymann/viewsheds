@@ -59,7 +59,7 @@ export class Viewport {
     this.canvas = <HTMLCanvasElement>document.getElementById("gfx-main");
 
     this.camera = new Camera(
-      [10, 10, 10],
+      [500, 150, 500],
       [0, 0, 0],
       [0, 1, 0],
       Math.PI / 4,
@@ -73,6 +73,13 @@ export class Viewport {
     const updateCanvasSize = () => {
       const width = Math.floor(wrapper.clientWidth * devicePixelRatio);
       const height = Math.floor(wrapper.clientHeight * devicePixelRatio);
+
+      // Layout isn't resolved yet (e.g. during initial load): a 0-sized
+      // canvas would produce invalid 0x0 textures/swapchain. Wait for a
+      // later observer callback once the wrapper has a real size.
+      if (width === 0 || height === 0) {
+        return;
+      }
 
       if (this.canvas.width !== width || this.canvas.height !== height) {
         this.canvas.width = width;
@@ -391,7 +398,7 @@ export class Viewport {
         depthStencil: {
           format: "depth24plus",
           depthWriteEnabled: true,
-          depthCompare: "always",
+          depthCompare: "less-equal",
         },
       }
     });
@@ -704,10 +711,14 @@ export class Viewport {
     this.gridPassDescriptor.colorAttachments[0].view = swapchainView;
     this.gridPassDescriptor.depthStencilAttachment!.view = this.depthView;
 
+    // The grid pass always runs to clear the framebuffer/depth; the grid lines
+    // themselves are only drawn when enabled.
     const gridPass: GPURenderPassEncoder = commandEncoder.beginRenderPass(this.gridPassDescriptor);
-    gridPass.setPipeline(this.pipelineManager.get<GPURenderPipeline>("render-grid"));
-    gridPass.setBindGroup(0, this.bindGroupManager.getGroup("grid"));
-    gridPass.draw(6);
+    if (plan.grid) {
+      gridPass.setPipeline(this.pipelineManager.get<GPURenderPipeline>("render-grid"));
+      gridPass.setBindGroup(0, this.bindGroupManager.getGroup("grid"));
+      gridPass.draw(6);
+    }
     gridPass.end();
     // End: Render grid
 
@@ -803,15 +814,25 @@ export class Viewport {
   focusCameraOnPointCloud() {
     const bounds = this.scene.bounds;
 
-    const centerX = (bounds.min.x + bounds.max.x) / 2;
-    const centerY = (bounds.min.y + bounds.max.y) / 2;
-    const centerZ = (bounds.min.z + bounds.max.z) / 2;
+    const center = vec3.fromValues(
+      (bounds.min.x + bounds.max.x) / 2,
+      (bounds.min.y + bounds.max.y) / 2,
+      (bounds.min.z + bounds.max.z) / 2
+    );
 
-    // Move the camera back along the Z-axis to fit the whole cloud in view
-    const distance = Math.max(bounds.max.x - bounds.min.x, bounds.max.y - bounds.min.y, bounds.max.z - bounds.min.z) * 1.5;
+    const distance = Math.max(bounds.max.x - bounds.min.x, bounds.max.y - bounds.min.y, bounds.max.z - bounds.min.z) * 0.8;
 
-    this.camera.setPosition(vec3.fromValues(centerX, centerY, centerZ + distance));
-    this.camera.setTarget(vec3.fromValues(centerX, centerY, centerZ));
+    // Preserve the camera's current viewing direction, just reposition it
+    const dir = vec3.subtract(vec3.create(), this.camera.position, center);
+    const len = vec3.length(dir);
+    if (len > 0) {
+      vec3.scale(dir, dir, distance / len);
+    } else {
+      vec3.set(dir, 0, 0, distance);
+    }
+
+    this.camera.setPosition(vec3.add(vec3.create(), center, dir));
+    this.camera.setTarget(center);
   }
   clearVisibility() {
     this.bufferManager.clear("point_visibility");

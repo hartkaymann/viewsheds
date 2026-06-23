@@ -1,6 +1,22 @@
 import { Bounds } from "./types/types";
 
+export interface LasHeaderSummary {
+    fileName: string;
+    fileSize: number;
+    versionMajor: number;
+    versionMinor: number;
+    pointCount: number;
+    formatId: number;
+    isCompressed: boolean;
+    pointDataRecordLength: number;
+    min: number[];
+    max: number[];
+}
+
 export interface SceneLoaderCallbacks {
+    onLoadStart?: () => void;
+    onHeader?: (summary: LasHeaderSummary) => void;
+    onProgress?: (stage: string, value: number) => void;
     onPointsLoaded?: (data: {
         points: Float32Array,
         colors: Float32Array,
@@ -28,6 +44,14 @@ export class SceneLoader {
             const msg = e.data;
 
             switch (msg.type) {
+                case "header":
+                    this.callbacks.onHeader?.(msg.summary);
+                    break;
+
+                case "progress":
+                    this.callbacks.onProgress?.(msg.stage, msg.value);
+                    break;
+
                 case "loaded":
                     this.callbacks.onPointsLoaded?.(msg);
                     break;
@@ -53,8 +77,13 @@ export class SceneLoader {
         };
     }
 
-    startLoadPoints(url) {
-        this.worker.postMessage({ type: "load-url", url });
+    peekHeader(buffer: ArrayBuffer, name: string) {
+        this.worker.postMessage({ type: "peek-header", buffer, name }, [buffer]);
+    }
+
+    confirmLoad() {
+        this.callbacks.onLoadStart?.();
+        this.worker.postMessage({ type: "confirm-load" });
     }
 
     startTreeBuild(points, bounds, depth) {
